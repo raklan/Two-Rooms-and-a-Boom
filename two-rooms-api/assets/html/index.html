@@ -1,0 +1,53 @@
+{{define "styling"}}
+<style>
+    #join-box {
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+    }
+
+    @media (max-width: 1000px){
+        #name-input, #roomcode-input{
+            width: 25%;
+            max-width: none;
+        }
+    }
+</style>
+<style></style>
+{{end}}
+
+{{define "body"}}
+<h1 style="font-size: xxx-large; text-align: center; margin: 5%;" id="game-title">Two Rooms and a Boom</h1>
+<form id="join-box" onsubmit="joinFormValidate(event)">
+    <input class="text-input" id="name-input" name="playerName" type="text" placeholder="ENTER YOUR NAME"
+        autocomplete="off" autocapitalize="off" />
+    <input class="text-input" id="roomcode-input" name="roomCode" type="text" maxlength="4"
+        placeholder="ENTER ROOM CODE" autocomplete="off" style="text-transform: uppercase;" />
+    <button>JOIN</button>
+</form>
+<div style="align-self: center;">
+    <h3 style="text-align: center;">-OR-</h3>
+    <button onclick="window.open('/maps', '_self')">HOST</button>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="/assets/js/utils.js"></script>
+<script>
+    function joinFormValidate(event) {
+        event.preventDefault();
+        let form = event.target
+        form['roomCode'].value = form['roomCode'].value.toUpperCase();
+
+        let connectionInfo = {
+            type: 'join',
+            roomCode: form['roomCode'].value,
+            playerName: form['playerName'].value,
+        }
+
+        window.localStorage.setItem('efaios-connectionInfo', JSON.stringify(connectionInfo))
+
+        window.open('/play', '_self')
+    }
+</script>
+{{end}}
