@@ -1,0 +1,3 @@
+logs/*.log
+lobbies/*.json
+gameStates/*.json
