@@ -17,22 +17,15 @@
 {{end}}
 
 {{define "body"}}
-<h1 style="font-size: xxx-large; text-align: center; margin: 5%;" id="game-title">Two Rooms and a Boom</h1>
-<form id="join-box" onsubmit="joinFormValidate(event)">
-    <input class="text-input" id="name-input" name="playerName" type="text" placeholder="ENTER YOUR NAME"
-        autocomplete="off" autocapitalize="off" />
-    <input class="text-input" id="roomcode-input" name="roomCode" type="text" maxlength="4"
-        placeholder="ENTER ROOM CODE" autocomplete="off" style="text-transform: uppercase;" />
-    <button>JOIN</button>
-</form>
-<div style="align-self: center;">
-    <h3 style="text-align: center;">-OR-</h3>
-    <button onclick="window.open('/maps', '_self')">HOST</button>
+<div class="panel frame">
+    <h1 style="font-size: xxx-large; text-align: center; margin: 5%;" id="game-title">Two Rooms and a Boom</h1>
+    <join-form></join-form>
 </div>
 {{end}}
 
 {{define "scripts"}}
 <script src="/assets/js/utils.js"></script>
+<script type="module" src="/assets/js/components/join-form.js"></script>
 <script>
     function joinFormValidate(event) {
         event.preventDefault();
@@ -45,7 +38,7 @@
             playerName: form['playerName'].value,
         }
 
-        window.localStorage.setItem('efaios-connectionInfo', JSON.stringify(connectionInfo))
+        window.localStorage.setItem('tworooms-connectionInfo', JSON.stringify(connectionInfo))
 
         window.open('/play', '_self')
     }

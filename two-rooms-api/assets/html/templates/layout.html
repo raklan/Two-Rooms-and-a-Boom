@@ -4,7 +4,8 @@
 
 <head>
 	<meta charset="utf-8">
-	<title>EFAiOS</title>
+	<title>Two Rooms and a Boom</title>
+	<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="/assets/stylesheets/main.css">
 	{{template "styling" .}}
 
@@ -17,17 +18,17 @@
 			bottom: 5px;
 		}
 
-		#main-content {
+		/* #main-content {
 			display: flex;
 			flex-direction: column;
 			height: 100%;
 			width: 100%;
-		}
+		} */
 	</style>
 </head>
 
 <body>
-	<div id="main-content">
+	<div id="content">
 		<div id="notification-popup" class="notification-popup">
 			<div id="notification-header" style="display: flex; justify-content: center;">
 				<span style="font-weight: bold; font-size: large" id="notification-title">Alert</span>
@@ -36,16 +37,18 @@
 			</div>
 			<div id="notification-content"></div>
 		</div>
-		<header style="margin-bottom: 5%;">
+		<header class="site-header">
 			<nav>
 				<a href="/">Home</a>
 				<a href="/roleeditor">Role Editor</a>
 				<a href="/compendium">Compendium</a>
-				<a href="https://github.com/raklan/EFAiOS/issues/new" target="_blank">Report a Bug</a>
+				<a href="https://github.com/raklan/Two-Rooms-and-a-Boom/issues/new" target="_blank">Report a Bug</a>
 			</nav>
 		</header>
-		<!--IMPORTANT: The '.' sends the data passed in during execution of this template to the nested template being executed into these-->
-		{{template "body" .}}
+		<main class="page-center">
+			<!--IMPORTANT: The '.' sends the data passed in during execution of this template to the nested template being executed into these-->
+			{{template "body" .}}
+		</main>
 		<div id="rejoin-box" style="display: none;">
 			<h4 style="text-align: center;">Active Game Detected. Rejoin?</h4>
 			<button onclick="rejoinGame()">Rejoin</button>
@@ -56,34 +59,6 @@
 {{template "scripts" .}}
 
 <script>
-	//On page load, give every button on the page some fun glitchy text for the hover effect. This attribute is then used to set the content of the after pseudo-element of each button
-	const glitchTextOptions = [
-		'RUN',
-		'HIDE',
-		'QUIET',
-		'ESCAPE',
-		'DEATH',
-		'MONSTERS',
-		'KILL',
-	]
-	let buttons = document.querySelectorAll("button")
-
-	for (let button of buttons) {
-		button.setAttribute("glitch-text", glitchTextOptions[Math.floor(Math.random() * glitchTextOptions.length)])
-	}
-
-	let mainContent = document.getElementById("main-content")
-	
-	function randomFlicker(){
-		mainContent.classList.add('flicker')
-
-		setTimeout(() => {
-			mainContent.classList.remove('flicker')
-		}, Math.random() * 60 + 20)
-
-		setTimeout(randomFlicker, Math.random() * 3000)
-	}	
-
 	function checkForActiveGame() {
 		if (window.location.pathname == '/play') {
 			return
@@ -105,7 +80,6 @@
 	}
 
 	checkForActiveGame();
-	randomFlicker();
 </script>
 
 </html>
