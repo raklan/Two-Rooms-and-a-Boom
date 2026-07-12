@@ -10,7 +10,7 @@ import (
 )
 
 // Given a GameDefinition's ID and a player name, creates and saves a new lobby for that player's game, returning the Lobby's room code.
-func CreateRoom(mapId string) (string, error) {
+func CreateRoom(maxPlayers int) (string, error) {
 	funcLogPrefix := "==CreateRoom=="
 	defer Logging.EnsureLogPrefixIsReset()
 	Logging.SetLogPrefix(ModuleLogPrefix, PackageLogPrefix)
@@ -18,7 +18,7 @@ func CreateRoom(mapId string) (string, error) {
 	log.Printf("%s Creating lobby object", funcLogPrefix)
 	lobby := Models.Lobby{
 		Status:     Models.LobbyStatus_AwaitingStart,
-		MaxPlayers: 24, //Setting just on my own for now
+		MaxPlayers: maxPlayers, //Setting just on my own for now
 		Players:    []Models.Player{},
 		Host:       Models.Player{},
 	}

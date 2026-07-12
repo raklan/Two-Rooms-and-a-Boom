@@ -17,7 +17,7 @@
 {{end}}
 
 {{define "body"}}
-<div class="panel frame">
+<div class="panel frame" style="width: 50%; max-width: unset;">
     <h1 style="font-size: xxx-large; text-align: center; margin: 5%;" id="game-title">Two Rooms and a Boom</h1>
     <join-form></join-form>
 </div>
@@ -26,21 +26,4 @@
 {{define "scripts"}}
 <script src="/assets/js/utils.js"></script>
 <script type="module" src="/assets/js/components/join-form.js"></script>
-<script>
-    function joinFormValidate(event) {
-        event.preventDefault();
-        let form = event.target
-        form['roomCode'].value = form['roomCode'].value.toUpperCase();
-
-        let connectionInfo = {
-            type: 'join',
-            roomCode: form['roomCode'].value,
-            playerName: form['playerName'].value,
-        }
-
-        window.localStorage.setItem('tworooms-connectionInfo', JSON.stringify(connectionInfo))
-
-        window.open('/play', '_self')
-    }
-</script>
 {{end}}

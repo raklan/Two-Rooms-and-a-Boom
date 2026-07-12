@@ -1,0 +1,45 @@
+{{define "styling"}}
+{{end}}
+
+{{define "body"}}
+<waiting-room></waiting-room>
+{{end}}
+
+{{define "scripts"}}
+<script src="/assets/js/utils.js"></script>
+<script type="module" src="/assets/js/components/waiting-room.js"></script>
+<script>
+    function dialWebsocket(){
+        const connectionInfo = JSON.parse(window.localStorage.getItem("tworooms-connectionInfo"));
+        let connectUrl = ''
+
+        let protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+        switch (connectionInfo.type) {
+            case "host":
+                urlToConnect = `${protocol}//${window.location.host}/lobby/host?maxPlayers=${connectionInfo.maxPlayers}&playerName=${connectionInfo.playerName}`
+                break;
+            case "join":
+                urlToConnect = `${protocol}//${window.location.host}/lobby/join?roomCode=${connectionInfo.roomCode}&playerName=${connectionInfo.playerName}`
+                break;
+            case "rejoin":
+                urlToConnect = `${protocol}//${window.location.host}/lobby/rejoin?roomCode=${connectionInfo.roomCode}&playerId=${connectionInfo.playerId}`
+                break;
+            default:
+                console.error("Something went wrong trying to detect mode")
+                return;
+        }
+
+        ws = new WebSocket(urlToConnect)
+
+        addEventListener('beforeunload', (event) => {
+            console.log('leaving page, closing websocket connection');
+            sendWsMessage(ws, 'disconnect', {});
+            ws.close();
+        })
+    }
+
+    dialWebsocket();
+
+</script>
+{{end}}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"tworoomsengine/Models"
 
@@ -30,16 +31,23 @@ var upgrader = websocket.Upgrader{
 func HostLobby(w http.ResponseWriter, r *http.Request) {
 	funcLogPrefix := "==HostLobby=="
 	log.Println("Starting hostLobby")
-	mapId := r.URL.Query().Get("mapId")
+	maxPlayers := r.URL.Query().Get("maxPlayers")
 	playerName := r.URL.Query().Get("playerName")
 
-	if mapId == "" || playerName == "" {
-		log.Println("Missing mapId or playerName in request")
-		http.Error(w, "Missing mapId or playerName in request", http.StatusBadRequest)
+	if maxPlayers == "" || playerName == "" {
+		log.Println("Missing maxPlayers or playerName in request")
+		http.Error(w, "Missing maxPlayers or playerName in request", http.StatusBadRequest)
 		return
 	}
 
-	roomCode, err := CreateRoom(mapId) // Assuming Engine.CreateRoom initializes room in DB
+	maxPlayersInt, err := strconv.Atoi(maxPlayers)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		http.Error(w, "Unable to parse maxPlayers", http.StatusInternalServerError)
+		return
+	}
+
+	roomCode, err := CreateRoom(maxPlayersInt) // Assuming Engine.CreateRoom initializes room in DB
 	if err != nil {
 		LogError(funcLogPrefix, err)
 		http.Error(w, "Unable to create room", http.StatusInternalServerError)
