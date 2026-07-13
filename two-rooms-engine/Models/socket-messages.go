@@ -33,6 +33,18 @@ type LobbyInfo struct {
 	LobbyInfo Lobby  `json:"lobbyInfo"`
 }
 
+// A message to notify all players that a round has just started
+type RoundStart struct {
+	//The round number that is starting
+	RoundNumber int `json:"roundNumber"`
+	//The length of time, in seconds, for which the round will run
+	RoundLength int `json:"roundLength"`
+}
+
+// A message to notify all players that a round has just ended
+type RoundEnd struct {
+}
+
 // If some message from a client causes any error, one of these is sent back to the client
 type SocketError struct {
 	Message string `json:"message"`

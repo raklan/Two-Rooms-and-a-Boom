@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"tworoomsapi/Logging"
 	"tworoomsengine/Models"
 
 	"github.com/gorilla/websocket"
@@ -333,7 +334,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			break
 		}
 
-		game, err := GetInitialGameState(roomCode, config)
+		game, err := getInitialGameState(roomCode, config)
 		if err != nil {
 			LogError(funcLogPrefix, err)
 			log.Printf("%s ERROR: GAME NOT STARTED, ABORTING...", funcLogPrefix)
@@ -349,53 +350,13 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			return
 		}
 		cleanUpRoom(room, roomCode)
-	// case "submitAction":
-	// 	var action struct {
-	// 		GameId string                  `json:"gameId"`
-	// 		Action Actions.SubmittedAction `json:"action"`
-	// 	}
-	// 	if err := json.Unmarshal(msg.Data, &action); err != nil {
-	// 		log.Printf("%s error decoding submitAction: {%s}", funcLogPrefix, err)
-	// 		socketError := Models.WebsocketMessage{
-	// 			Type: Models.WebsocketMessage_Error,
-	// 			Data: Models.SocketError{
-	// 				Message: err.Error(),
-	// 			},
-	// 		}
-	// 		room[playerId].WriteJSON(socketError)
-	// 		break
-	// 	}
-
-	// 	//Supply PlayerId with the Id of the player belonging to this connection
-	// 	action.Action.PlayerId = playerId
-
-	// 	messageList, err := SubmitAction(action.GameId, action.Action)
-	// 	if err != nil {
-	// 		LogError(funcLogPrefix, err)
-	// 		socketError := Models.WebsocketMessage{
-	// 			Type: Models.WebsocketMessage_Error,
-	// 			Data: Models.SocketError{
-	// 				Message: err.Error(),
-	// 			},
-	// 		}
-	// 		room[playerId].WriteJSON(socketError)
-	// 		break
-	// 	}
-
-	// 	for _, messageToSend := range messageList {
-	// 		if messageToSend.ShouldBroadcast {
-	// 			sendMessageToAllPlayers(room, messageToSend.Message)
-	// 		} else {
-	// 			room[playerId].WriteJSON(messageToSend.Message)
-	// 		}
-	// 	}
-
-	// 	if slices.ContainsFunc(messageList, func(li Models.WebsocketMessageListItem) bool {
-	// 		return li.Message.Type == Models.WebsocketMessage_GameOver
-	// 	}) {
-	// 		MarkLobbyAsEnded(roomCode)
-	// 		cleanUpRoom(room, roomCode)
-	// 	}
+	case "startRound":
+		err := StartNextRound(roomCode)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			log.Printf("%s ERROR: Couldn't start round, aborting", funcLogPrefix)
+			return
+		}
 	case "leaveLobby":
 		updatedLobby, err := endPlayerConnection(roomCode, playerId, room)
 
@@ -492,82 +453,12 @@ func processMessage(roomCode string, playerId string, message []byte) {
 	manageClient(roomCode, room, playerId, room[playerId])
 }
 
-func endPlayerConnection(roomCode string, playerId string, room map[string]*websocket.Conn) (Models.Lobby, error) {
-	funcLogPrefix := "==endPlayerConnection=="
-	//Tell the engine to remove the player from the DB copy of the lobby
-	updatedLobby, err := LeaveRoom(roomCode, playerId)
-	if err != nil {
-		LogError(funcLogPrefix, err)
-		return Models.Lobby{}, err
-	}
-
-	//If the removed client has a currently open connection, tell that the client that the connection is closing, then close connection
-	if conn, exists := room[playerId]; exists {
-		msg := Models.WebsocketMessage{
-			Type: Models.WebsocketMessage_Close,
-			Data: Models.SocketClose{
-				Message: "Player has been removed from Lobby. Closing connection",
-			},
-		}
-		conn.WriteJSON(msg)
-		conn.Close()
-		//Remove connection from lobby map so we don't try to send them any more messages
-		gamesClientsMutex.Lock()
-		delete(room, playerId)
-		gamesClientsMutex.Unlock()
-	}
-
-	return updatedLobby, nil
-}
-
-func cleanUpRoom(room map[string]*websocket.Conn, roomCode string) {
-	funcLogPrefix := "==cleanUpRoom=="
-	log.Printf("%s cleaning up Room {%s}", funcLogPrefix, roomCode)
-	closeMessage := Models.WebsocketMessage{
-		Type: Models.WebsocketMessage_Close,
-		Data: Models.SocketClose{
-			Message: "Game has ended. Closing connection",
-		},
-	}
-
-	gamesClientsMutex.Lock()
-	//Send the messages to every player and stop tracking their connection
-	for playerId, conn := range room {
-		log.Printf("%s stopping tracking and closing connection for PlayerId %s", funcLogPrefix, playerId)
-		err := conn.WriteJSON(closeMessage)
-		if err != nil {
-			log.Printf("Error sending Close Message to %s. Aborting message, but closing connection anyways", playerId)
-		}
-		conn.Close()
-		delete(room, playerId)
-	}
-
-	//Stop tracking the room
-	log.Printf("%s stopping tracking of Room {%s}", funcLogPrefix, roomCode)
-	delete(gamesClients, roomCode)
-	gamesClientsMutex.Unlock()
-	log.Printf("%s room successfully cleaned up", funcLogPrefix)
-}
-
-func sendMessageToAllPlayers(room map[string]*websocket.Conn, message Models.WebsocketMessage) {
-	funcLogPrefix := "==sendMessageToAllPlayers=="
-
-	if message.Type == "" {
-		log.Printf("%s WARNING: Websocket message being sent has no Type set! Frontend will likely not know how to handle the message!", funcLogPrefix)
-	}
-
-	for playerId, conn := range room {
-		err := conn.WriteJSON(message)
-		if err != nil {
-			log.Printf("%s Error sending message, skipping meesage to PlayerId {%s}", funcLogPrefix, playerId)
-			continue
-		}
-	}
-}
-
 // Defer this function whenever you try to read from a socket. If ReadMessage panics, this will kick in. Note: This must be set up (deferred) **BEFORE** calling ReadMessage
 func socketRecovery(roomCode string, room map[string]*websocket.Conn, playerId string) {
 	funcLogPrefix := "==socketRecovery=="
+	defer Logging.EnsureLogPrefixIsReset()
+	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
+
 	if r := recover(); r != nil {
 		log.Printf("%s Something went wrong trying to manage the connection of Player, likely due to an unexpected closing of the Websocket connection for PlayerId {%s}\n\t Error is: %s", funcLogPrefix, playerId, r)
 		//Disconnect client by closing connection (if it's not already closed) and stopping tracking of their connection

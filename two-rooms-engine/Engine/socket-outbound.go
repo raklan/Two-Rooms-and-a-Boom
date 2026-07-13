@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"time"
 	"tworoomsapi/Logging"
 	"tworoomsengine/Models"
+
+	"github.com/gorilla/websocket"
 )
 
 // Given an id to a Game defition, constructs and returns an initial GameState for it. This is essentially
 // how to start the game
-func GetInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.GameState, error) {
+func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.GameState, error) {
 	funcLogPrefix := "==GetInitialGameState=="
 	defer Logging.EnsureLogPrefixIsReset()
 	Logging.SetLogPrefix(ModuleLogPrefix, PackageLogPrefix)
@@ -44,6 +47,7 @@ func GetInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	}
 
 	gameState.CurrentRound = 1
+	gameState.GameConfig.NumRounds = 3 //TODO: Allow non-hardcoded values
 
 	assignTeams(&gameState)
 	// if err := AssignRoles(&gameState, gameConfig.ActiveRoles, gameConfig.RequiredRoles); err != nil {
@@ -128,6 +132,88 @@ func MarkLobbyAsEnded(roomCode string) error {
 	return err
 }
 
+// #region StartNextRound
+func StartNextRound(roomCode string) error {
+	funcLogPrefix := "==StartNextRound=="
+	defer Logging.EnsureLogPrefixIsReset()
+	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
+
+	lobby, err := GetLobbyFromFs(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	gameState, err := GetGameStateFromFs(lobby.GameStateId)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	roundDurationSeconds := 0
+
+	switch gameState.CurrentRound {
+	case 1:
+		roundDurationSeconds = 180
+	case 2:
+		roundDurationSeconds = 120
+	case 3:
+		roundDurationSeconds = 60
+	}
+
+	if roundDurationSeconds == 0 {
+		return fmt.Errorf("could not determine round length")
+	}
+
+	time.AfterFunc(time.Duration(roundDurationSeconds)*time.Second, func() {
+		endCurrentRound(lobby.GameStateId, roomCode)
+	})
+
+	gamesClientsMutex.Lock()
+	sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_RoundStart,
+		Data: Models.RoundStart{},
+	})
+	gamesClientsMutex.Unlock()
+
+	return nil
+}
+
+// #endregion
+
+func endCurrentRound(gameStateId string, roomCode string) {
+	funcLogPrefix := "==endCurrentRound=="
+	defer Logging.EnsureLogPrefixIsReset()
+	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
+
+	gameState, err := GetGameStateFromFs(gameStateId)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return
+	}
+
+	gameState.CurrentRound++
+	gamesClientsMutex.Lock()
+	if gameState.CurrentRound > gameState.GameConfig.NumRounds {
+		sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_RoundEnd,
+			Data: Models.RoundEnd{},
+		})
+	} else {
+		sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_GameOver,
+			Data: Models.GameOver{},
+		})
+	}
+	gamesClientsMutex.Unlock()
+
+	_, err = SaveGameStateToFs(gameState)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+	}
+
+}
+
 //Come back to this if I ever want spectators
 // func SwitchPlayerSpectating(roomCode string, playerId string, isSpectating bool) (Models.Lobby, error) {
 // 	funcLogPrefix := "==SwitchPlayerSpectating=="
@@ -157,7 +243,7 @@ func MarkLobbyAsEnded(roomCode string) error {
 
 // 	return lobby, err
 // }
-
+// #region SubmitAction
 // func SubmitAction(gameId string, action Actions.SubmittedAction) ([]Models.WebsocketMessageListItem, error) {
 // 	funcLogPrefix := "==SubmitAction=="
 // 	defer Logging.EnsureLogPrefixIsReset()
@@ -502,5 +588,78 @@ func assignTeams(gameState *Models.GameState) {
 
 // 	return nil
 // }
+
+func sendMessageToAllPlayers(room map[string]*websocket.Conn, message Models.WebsocketMessage) {
+	funcLogPrefix := "==sendMessageToAllPlayers=="
+
+	if message.Type == "" {
+		log.Printf("%s WARNING: Websocket message being sent has no Type set! Frontend will likely not know how to handle the message!", funcLogPrefix)
+	}
+
+	for playerId, conn := range room {
+		err := conn.WriteJSON(message)
+		if err != nil {
+			log.Printf("%s Error sending message, skipping meesage to PlayerId {%s}", funcLogPrefix, playerId)
+			continue
+		}
+	}
+}
+
+func cleanUpRoom(room map[string]*websocket.Conn, roomCode string) {
+	funcLogPrefix := "==cleanUpRoom=="
+	log.Printf("%s cleaning up Room {%s}", funcLogPrefix, roomCode)
+	closeMessage := Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_Close,
+		Data: Models.SocketClose{
+			Message: "Game has ended. Closing connection",
+		},
+	}
+
+	gamesClientsMutex.Lock()
+	//Send the messages to every player and stop tracking their connection
+	for playerId, conn := range room {
+		log.Printf("%s stopping tracking and closing connection for PlayerId %s", funcLogPrefix, playerId)
+		err := conn.WriteJSON(closeMessage)
+		if err != nil {
+			log.Printf("Error sending Close Message to %s. Aborting message, but closing connection anyways", playerId)
+		}
+		conn.Close()
+		delete(room, playerId)
+	}
+
+	//Stop tracking the room
+	log.Printf("%s stopping tracking of Room {%s}", funcLogPrefix, roomCode)
+	delete(gamesClients, roomCode)
+	gamesClientsMutex.Unlock()
+	log.Printf("%s room successfully cleaned up", funcLogPrefix)
+}
+
+func endPlayerConnection(roomCode string, playerId string, room map[string]*websocket.Conn) (Models.Lobby, error) {
+	funcLogPrefix := "==endPlayerConnection=="
+	//Tell the engine to remove the player from the DB copy of the lobby
+	updatedLobby, err := LeaveRoom(roomCode, playerId)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return Models.Lobby{}, err
+	}
+
+	//If the removed client has a currently open connection, tell that the client that the connection is closing, then close connection
+	if conn, exists := room[playerId]; exists {
+		msg := Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_Close,
+			Data: Models.SocketClose{
+				Message: "Player has been removed from Lobby. Closing connection",
+			},
+		}
+		conn.WriteJSON(msg)
+		conn.Close()
+		//Remove connection from lobby map so we don't try to send them any more messages
+		gamesClientsMutex.Lock()
+		delete(room, playerId)
+		gamesClientsMutex.Unlock()
+	}
+
+	return updatedLobby, nil
+}
 
 //#endregion
