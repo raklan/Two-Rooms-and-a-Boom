@@ -5,32 +5,12 @@ import (
 	"log"
 	"math/rand"
 	"slices"
-	"sync"
 	"time"
 	"tworoomsapi/Logging"
 	"tworoomsengine/Models"
 
 	"github.com/gorilla/websocket"
 )
-
-type PendingAbdication struct {
-	From string
-	To   string
-}
-
-// map[roomCode][room#] -> playerId
-var pendingAbdications = make(map[string]map[int]PendingAbdication)
-var pendingAbdicationsMutex = sync.Mutex{}
-
-type PendingUsurption struct {
-	VotesYes           int
-	VotesNo            int
-	ProposedLeaderName string
-}
-
-// map[roomCode][room#] -> PendingUsurption
-var pendingUsurptions = make(map[string]map[int]PendingUsurption)
-var pendingUsurptionsMutex = sync.Mutex{}
 
 // Given an id to a Game defition, constructs and returns an initial GameState for it. This is essentially
 // how to start the game
@@ -323,23 +303,23 @@ func abdicateLeadership(roomCode string, abdicatorId string, abdicateToId string
 		return err
 	}
 
-	pendingAbdicationsMutex.Lock()
-	defer pendingAbdicationsMutex.Unlock()
+	Models.PendingAbdicationsMutex.Lock()
+	defer Models.PendingAbdicationsMutex.Unlock()
 
-	if _, exists := pendingAbdications[roomCode][abdicator.Room]; exists {
+	if _, exists := Models.PendingAbdications[roomCode][abdicator.Room]; exists {
 		err := fmt.Errorf("room already has a pending abdication from Player '%s' to Player '%s'", abdicator.Name, abdicateTo.Name)
 		LogError(funcLogPrefix, err)
 		return err
 	}
 
-	pendingAbdications[roomCode][abdicator.Room] = PendingAbdication{
+	Models.PendingAbdications[roomCode][abdicator.Room] = Models.PendingAbdication{
 		From: abdicator.Id,
 		To:   abdicateTo.Id,
 	}
 
 	gamesClients[roomCode][abdicateToId].WriteJSON(Models.WebsocketMessage{
 		Type: Models.WebsocketMessage_PendingAbdication,
-		Data: Models.PendingAbdication{
+		Data: Models.PendingAbdicationNotification{
 			From: abdicator.Name,
 		},
 	})
@@ -347,10 +327,10 @@ func abdicateLeadership(roomCode string, abdicatorId string, abdicateToId string
 	return nil
 }
 
-func acceptAbdication(roomCode string, acceptingId string) error {
+func respondAbdication(roomCode string, respondingPlayerId string, accept bool) error {
 	funcLogPrefix := "==acceptAbdication=="
 
-	log.Printf("%s accepting abdication for Player [%s]", funcLogPrefix, acceptingId)
+	log.Printf("%s accepting abdication for Player [%s]", funcLogPrefix, respondingPlayerId)
 
 	gameState, err := getGameStateFromRoomCode(roomCode)
 	if err != nil {
@@ -358,53 +338,58 @@ func acceptAbdication(roomCode string, acceptingId string) error {
 		return err
 	}
 
-	acceptorIndex, acceptor := gameState.GetPlayerById(acceptingId)
+	acceptorIndex, acceptor := gameState.GetPlayerById(respondingPlayerId)
 	if acceptorIndex == -1 {
-		err = fmt.Errorf("could not find player [%s]", acceptingId)
+		err = fmt.Errorf("could not find player [%s]", respondingPlayerId)
 		LogError(funcLogPrefix, err)
 		return err
 	}
 
-	pendingAbdicationsMutex.Lock()
-	defer pendingAbdicationsMutex.Unlock()
+	Models.PendingAbdicationsMutex.Lock()
+	defer Models.PendingAbdicationsMutex.Unlock()
 
-	if pendingAbdication, exists := pendingAbdications[roomCode][acceptor.Room]; exists {
+	if pendingAbdication, exists := Models.PendingAbdications[roomCode][acceptor.Room]; exists {
 		if pendingAbdication.To != acceptor.Id {
 			err = fmt.Errorf("player '%s' is not the target of the pending abdication in Room %d", acceptor.Name, acceptor.Room)
 			LogError(funcLogPrefix, err)
 			return err
 		}
 
-		abdicatorIndex, _ := gameState.GetPlayerById(pendingAbdication.From)
+		abdicatorIndex, abdicator := gameState.GetPlayerById(pendingAbdication.From)
 		if abdicatorIndex == -1 {
 			err := fmt.Errorf("could not find abdicator with Id == [%s] in Pending Abdication to Player '%s'", pendingAbdication.From, acceptor.Name)
 			LogError(funcLogPrefix, err)
 			return err
 		}
 
-		gameState.Players[abdicatorIndex].IsRoomLeader = false
-		gameState.Players[acceptorIndex].IsRoomLeader = true
+		gamesClientsMutex.Lock()
+		defer gamesClientsMutex.Unlock()
+		if accept {
+			gameState.Players[abdicatorIndex].IsRoomLeader = false
+			gameState.Players[acceptorIndex].IsRoomLeader = true
 
-		delete(pendingAbdications[roomCode], acceptor.Room)
+			sendMessageToAllPlayersInRoom(
+				gamesClients[roomCode],
+				gameState,
+				acceptor.Room,
+				Models.WebsocketMessage{
+					Type: Models.WebsocketMessage_NewLeader,
+					Data: Models.NewLeader{
+						NewLeaderName: acceptor.Name,
+					},
+				})
+		} else {
+			gamesClients[roomCode][abdicator.Id].WriteJSON(Models.WebsocketMessage{
+				Type: Models.WebsocketMessage_AbdicationRejected,
+			})
+		}
+
+		delete(Models.PendingAbdications[roomCode], acceptor.Room)
 	} else {
 		err = fmt.Errorf("there is no pending abdication in Room %d", acceptor.Room)
 		LogError(funcLogPrefix, err)
 		return err
 	}
-
-	gamesClientsMutex.Lock()
-	defer gamesClientsMutex.Unlock()
-
-	sendMessageToAllPlayersInRoom(
-		gamesClients[roomCode],
-		gameState,
-		acceptor.Room,
-		Models.WebsocketMessage{
-			Type: Models.WebsocketMessage_NewLeader,
-			Data: Models.NewLeader{
-				NewLeaderName: acceptor.Name,
-			},
-		})
 
 	_, err = SaveGameStateToFs(gameState)
 	if err != nil {
@@ -447,16 +432,16 @@ func usurpLeader(roomCode string, usurperId string, proposedLeaderId string) err
 		return err
 	}
 
-	pendingUsurptionsMutex.Lock()
-	defer pendingAbdicationsMutex.Unlock()
+	Models.PendingUsurptionsMutex.Lock()
+	defer Models.PendingAbdicationsMutex.Unlock()
 
-	if _, exists := pendingUsurptions[roomCode][usurper.Room]; exists {
+	if _, exists := Models.PendingUsurptions[roomCode][usurper.Room]; exists {
 		err = fmt.Errorf("there is already a pending usurption in Room %d", usurper.Room)
 		LogError(funcLogPrefix, err)
 		return err
 	}
 
-	pendingUsurptions[roomCode][usurper.Room] = PendingUsurption{
+	Models.PendingUsurptions[roomCode][usurper.Room] = Models.PendingUsurption{
 		VotesYes:           0,
 		VotesNo:            0,
 		ProposedLeaderName: proposedLeader.Name,
@@ -471,7 +456,7 @@ func usurpLeader(roomCode string, usurperId string, proposedLeaderId string) err
 		usurper.Room,
 		Models.WebsocketMessage{
 			Type: Models.WebsocketMessage_PendingUsurption,
-			Data: Models.PendingUsurption{
+			Data: Models.PendingUsurptionNotification{
 				UsurperName:   usurper.Name,
 				NewLeaderName: proposedLeader.Name,
 			},
@@ -496,25 +481,25 @@ func voteForUsurption(roomCode string, voterId string, vote bool) error {
 		return err
 	}
 
-	pendingUsurptionsMutex.Lock()
-	defer pendingAbdicationsMutex.Unlock()
+	Models.PendingUsurptionsMutex.Lock()
+	defer Models.PendingAbdicationsMutex.Unlock()
 
-	if currentVotes, exists := pendingUsurptions[roomCode][voter.Room]; exists {
+	if currentVotes, exists := Models.PendingUsurptions[roomCode][voter.Room]; exists {
 		if vote {
-			pendingUsurptions[roomCode][voter.Room] = PendingUsurption{
+			Models.PendingUsurptions[roomCode][voter.Room] = Models.PendingUsurption{
 				VotesYes:           currentVotes.VotesYes + 1,
 				VotesNo:            currentVotes.VotesNo,
 				ProposedLeaderName: currentVotes.ProposedLeaderName,
 			}
 		} else {
-			pendingUsurptions[roomCode][voter.Room] = PendingUsurption{
+			Models.PendingUsurptions[roomCode][voter.Room] = Models.PendingUsurption{
 				VotesYes:           currentVotes.VotesYes,
 				VotesNo:            currentVotes.VotesNo + 1,
 				ProposedLeaderName: currentVotes.ProposedLeaderName,
 			}
 		}
 
-		newVotes := pendingUsurptions[roomCode][voter.Room]
+		newVotes := Models.PendingUsurptions[roomCode][voter.Room]
 		numPlayersInRoom := len(gameState.GetPlayersInRoom(voter.Room))
 		//If everyone has voted, end voting and notify of result
 		if newVotes.VotesNo+newVotes.VotesYes == numPlayersInRoom {
@@ -541,7 +526,7 @@ func voteForUsurption(roomCode string, voterId string, vote bool) error {
 				messageToSend,
 			)
 
-			delete(pendingUsurptions[roomCode], voter.Room)
+			delete(Models.PendingUsurptions[roomCode], voter.Room)
 		}
 	} else {
 		err = fmt.Errorf("there is no pending Usurption in Room %d", voter.Room)
@@ -551,6 +536,143 @@ func voteForUsurption(roomCode string, voterId string, vote bool) error {
 
 	return nil
 }
+
+// #region CardShare
+func requestCardShare(roomCode string, fromId string, toId string, fullShare bool) error {
+	funcLogPrefix := "==requestCardShare=="
+
+	log.Printf("%s received CardShare request from Player [%s] to Player [%s]\n", funcLogPrefix, fromId, toId)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	fromPlayerIndex, fromPlayer := gameState.GetPlayerById(fromId)
+	if fromPlayerIndex == -1 {
+		err = fmt.Errorf("could not find Player [%s]", fromId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	toPlayerIndex, toPlayer := gameState.GetPlayerById(toId)
+	if toPlayerIndex == -1 {
+		err = fmt.Errorf("could not find Player [%s]", toId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	if fromPlayer.Room != toPlayer.Room {
+		err = fmt.Errorf("can't cardshare with Player '%s' -- not in the same room!", toPlayer.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	Models.PendingCardSharesMutex.Lock()
+	defer Models.PendingCardSharesMutex.Unlock()
+
+	roomCardShares := Models.PendingCardShares[roomCode][fromPlayer.Room]
+
+	if slices.ContainsFunc(roomCardShares, func(el Models.PendingCardShare) bool { return el.FromId == fromPlayer.Id }) {
+		err = fmt.Errorf("there is already an active Card Share request from Player '%s'", fromPlayer.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	Models.PendingCardShares[roomCode][fromPlayer.Room] = append(roomCardShares, Models.PendingCardShare{
+		FromId:        fromPlayer.Id,
+		ToId:          toPlayer.Id,
+		ShareFullCard: fullShare,
+	})
+
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+
+	gamesClients[roomCode][toPlayer.Id].WriteJSON(Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_PendingCardShare,
+		Data: Models.PendingCardShareNotification{
+			FromName:  fromPlayer.Name,
+			FullShare: fullShare,
+		},
+	})
+
+	return nil
+}
+
+func respondCardShare(roomCode string, respondingId string, accept bool) error {
+	funcLogPrefix := "==responseCardShare=="
+
+	log.Printf("%s responding to Card Share request to Player [%s]\n", funcLogPrefix, respondingId)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	responderIndex, responder := gameState.GetPlayerById(respondingId)
+	if responderIndex == -1 {
+		err = fmt.Errorf("could not find Player with Id == [%s]", respondingId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	Models.PendingCardSharesMutex.Lock()
+	defer Models.PendingAbdicationsMutex.Unlock()
+
+	pendingRoomShares := Models.PendingCardShares[roomCode][responder.Room]
+	shareIndex := slices.IndexFunc(pendingRoomShares, func(el Models.PendingCardShare) bool { return el.ToId == responder.Id })
+	if shareIndex == -1 {
+		err = fmt.Errorf("no pending Card Share requests found to Player '%s'", responder.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	shareRequest := pendingRoomShares[shareIndex]
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+	if accept {
+		requesterIndex, requester := gameState.GetPlayerById(shareRequest.FromId)
+		if requesterIndex == -1 {
+			err = fmt.Errorf("could not find Player with Id == [%s]", shareRequest.FromId)
+			LogError(funcLogPrefix, err)
+			return err
+		}
+
+		messageForRequester := Models.CardShare{
+			FromPlayer: responder.Name,
+			Team:       responder.Name,
+		}
+		messageForResponder := Models.CardShare{
+			FromPlayer: requester.Name,
+			Team:       requester.Name,
+		}
+		if shareRequest.ShareFullCard {
+			messageForRequester.Role = responder.Role
+			messageForResponder.Role = requester.Role
+		}
+
+		gamesClients[roomCode][requester.Id].WriteJSON(Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_CardShare,
+			Data: messageForRequester,
+		})
+		gamesClients[roomCode][responder.Id].WriteJSON(Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_CardShare,
+			Data: messageForResponder,
+		})
+	} else {
+		gamesClients[roomCode][shareRequest.FromId].WriteJSON(Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_CardShareRejected,
+		})
+	}
+
+	Models.PendingCardShares[roomCode][responder.Room] = slices.DeleteFunc(pendingRoomShares, func(el Models.PendingCardShare) bool { return el == shareRequest })
+
+	return nil
+}
+
+// #region Spectators
 
 //Come back to this if I ever want spectators
 // func SwitchPlayerSpectating(roomCode string, playerId string, isSpectating bool) (Models.Lobby, error) {

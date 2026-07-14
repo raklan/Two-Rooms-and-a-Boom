@@ -7,25 +7,29 @@ const (
 	WebsocketMessage_ClientNominateLeader   = "NominateLeader"
 	WebsocketMessage_ClientAbdicate         = "Abdicate"
 	WebsocketMessage_ClientAcceptAbdication = "AcceptAbdication"
+	WebsocketMessage_ClientRejectAbdication = "RejectAbdication"
 	WebsocketMessage_ClientUsurp            = "Usurp"
 	WebsocketMessage_ClientUsurpVote        = "UsurpVote"
 	WebsocketMessage_ClientHostageExchange  = "HostageExchange"
 	WebsocketMessage_ClientCardShare        = "CardShare"
 	WebsocketMessage_ClientAcceptCardShare  = "AcceptCardShare"
 
-	WebsocketMessage_Close             = "Close"
-	WebsocketMessage_Error             = "Error"
-	WebsocketMessage_LobbyInfo         = "LobbyInfo"
-	WebsocketMessage_GameState         = "GameState"
-	WebsocketMessage_RoundStart        = "RoundStart"
-	WebsocketMessage_RoundEnd          = "RoundEnd"
-	WebsocketMessage_GameOver          = "GameOver"
-	WebsocketMessage_NewLeader         = "NewLeader"
-	WebsocketMessage_PendingAbdication = "PendingAbdication"
-	WebsocketMessage_PendingUsurption  = "PendingUsurption"
-	WebsocketMessage_UsurptionFailed   = "UsurptionFailed"
-	WebsocketMessage_PendingShare      = "PendingShare"
-	WebsocketMessage_RoomUpdate        = "RoomUpdate"
+	WebsocketMessage_Close              = "Close"
+	WebsocketMessage_Error              = "Error"
+	WebsocketMessage_LobbyInfo          = "LobbyInfo"
+	WebsocketMessage_GameState          = "GameState"
+	WebsocketMessage_RoundStart         = "RoundStart"
+	WebsocketMessage_RoundEnd           = "RoundEnd"
+	WebsocketMessage_GameOver           = "GameOver"
+	WebsocketMessage_NewLeader          = "NewLeader"
+	WebsocketMessage_PendingAbdication  = "PendingAbdication"
+	WebsocketMessage_AbdicationRejected = "AbdicationRejected"
+	WebsocketMessage_PendingUsurption   = "PendingUsurption"
+	WebsocketMessage_UsurptionFailed    = "UsurptionFailed"
+	WebsocketMessage_PendingCardShare   = "PendingCardShare"
+	WebsocketMessage_CardShareRejected  = "CardShareRejected"
+	WebsocketMessage_CardShare          = "CardShare"
+	WebsocketMessage_RoomUpdate         = "RoomUpdate"
 )
 
 type WebsocketMessageListItem struct {
@@ -63,7 +67,7 @@ type HostageExchange struct {
 	Players []string `json:"players"`
 }
 
-type CardShare struct {
+type CardShareRequest struct {
 	//Id of the player to share with
 	ShareWith string `json:"shareWith"`
 	//A boolean indicating whether both team and role should be shared (instead of just team)
@@ -97,13 +101,24 @@ type NewLeader struct {
 	NewLeaderName string `json:"newLeaderName"`
 }
 
-type PendingAbdication struct {
+type PendingAbdicationNotification struct {
 	From string `json:"from"`
 }
 
-type PendingUsurption struct {
+type PendingUsurptionNotification struct {
 	UsurperName   string `json:"usurperName"`
 	NewLeaderName string `json:"newLeaderName"`
+}
+
+type PendingCardShareNotification struct {
+	FromName  string `json:"fromName"`
+	FullShare bool   `json:"fullShare"`
+}
+
+type CardShare struct {
+	FromPlayer string `json:"fromPlayer"`
+	Team       string `json:"team"`
+	Role       string `json:"role"`
 }
 
 // If some message from a client causes any error, one of these is sent back to the client
