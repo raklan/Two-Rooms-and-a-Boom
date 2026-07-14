@@ -672,6 +672,104 @@ func respondCardShare(roomCode string, respondingId string, accept bool) error {
 	return nil
 }
 
+func submitHostages(roomCode string, submittingPlayerId string, hostageIds []string) error {
+	funcLogPrefix := "==submitHostages=="
+
+	log.Printf("%s Submitting following hostages for Player [%s]: %s\n", funcLogPrefix, submittingPlayerId, hostageIds)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	leaderIndex, leader := gameState.GetPlayerById(submittingPlayerId)
+	if leaderIndex == -1 {
+		err = fmt.Errorf("could not find player with ID == [%s]", submittingPlayerId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	if !leader.IsRoomLeader {
+		err = fmt.Errorf("Player '%s' is not the room leader and cannot submit hostages", leader.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	finalHostageList := []string{}
+	for _, id := range hostageIds {
+		requestedHostageIndex, hostage := gameState.GetPlayerById(id)
+		if requestedHostageIndex == -1 {
+			log.Printf("%s could not find Hostage with Id == [%s]. Skipping...\n", funcLogPrefix, id)
+			continue
+		}
+
+		if hostage.Room != leader.Room {
+			log.Printf("%s Hostage is not in the same room as the Leader. Skipping...\n", funcLogPrefix)
+			continue
+		}
+
+		finalHostageList = append(finalHostageList, id)
+	}
+
+	Models.PendingHostagesMutex.Lock()
+	defer Models.PendingHostagesMutex.Unlock()
+
+	if pendingExchange, exists := Models.PendingHostages[roomCode][leader.Room]; exists {
+		hostagesToSendToThisRoom := pendingExchange.HostageIds
+		hostagesToSendToOtherRoom := finalHostageList
+
+		sentToThisRoom := []string{}
+		sentToOtherRoom := []string{}
+		for _, id := range hostagesToSendToThisRoom {
+			hostageIndex, _ := gameState.GetPlayerById(id)
+			if hostageIndex == -1 {
+				log.Printf("%s could not find Hostage to send to this room with Id == [%s]. Skipping...\n", funcLogPrefix, id)
+				continue
+			}
+
+			gameState.Players[hostageIndex].Room = leader.Room
+			sentToThisRoom = append(sentToThisRoom, gameState.Players[hostageIndex].Name)
+		}
+
+		for _, id := range hostagesToSendToOtherRoom {
+			hostageIndex, _ := gameState.GetPlayerById(id)
+			if hostageIndex == -1 {
+				log.Printf("%s could not find Hostage to send to other room with Id == [%s]. Skipping...\n", funcLogPrefix, id)
+				continue
+			}
+
+			gameState.Players[hostageIndex].Room = pendingExchange.Room
+			sentToOtherRoom = append(sentToOtherRoom, gameState.Players[hostageIndex].Name)
+		}
+
+		gamesClientsMutex.Lock()
+		defer gamesClientsMutex.Unlock()
+		sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_HostageExchangeComplete,
+			Data: Models.HostageExchangeResult{
+				SentPlayers: map[int][]string{
+					pendingExchange.Room: sentToOtherRoom,
+					leader.Room:          sentToThisRoom,
+				},
+			},
+		})
+
+		_, err = SaveGameStateToFs(gameState)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			return err
+		}
+	} else {
+		Models.PendingHostages[roomCode][leader.Room] = Models.PendingHostageExchange{
+			Room:       leader.Room,
+			HostageIds: finalHostageList,
+		}
+	}
+
+	return nil
+}
+
 // #region Spectators
 
 //Come back to this if I ever want spectators

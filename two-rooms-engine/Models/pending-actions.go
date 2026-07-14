@@ -30,3 +30,11 @@ type PendingCardShare struct {
 // map[roomCode][room#] -> []PendingCardShare
 var PendingCardShares = make(map[string]map[int][]PendingCardShare)
 var PendingCardSharesMutex = sync.Mutex{}
+
+type PendingHostageExchange struct {
+	Room       int
+	HostageIds []string
+}
+
+var PendingHostages = make(map[string]map[int]PendingHostageExchange)
+var PendingHostagesMutex = sync.Mutex{}

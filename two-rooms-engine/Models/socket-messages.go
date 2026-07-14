@@ -14,22 +14,22 @@ const (
 	WebsocketMessage_ClientCardShare        = "CardShare"
 	WebsocketMessage_ClientAcceptCardShare  = "AcceptCardShare"
 
-	WebsocketMessage_Close              = "Close"
-	WebsocketMessage_Error              = "Error"
-	WebsocketMessage_LobbyInfo          = "LobbyInfo"
-	WebsocketMessage_GameState          = "GameState"
-	WebsocketMessage_RoundStart         = "RoundStart"
-	WebsocketMessage_RoundEnd           = "RoundEnd"
-	WebsocketMessage_GameOver           = "GameOver"
-	WebsocketMessage_NewLeader          = "NewLeader"
-	WebsocketMessage_PendingAbdication  = "PendingAbdication"
-	WebsocketMessage_AbdicationRejected = "AbdicationRejected"
-	WebsocketMessage_PendingUsurption   = "PendingUsurption"
-	WebsocketMessage_UsurptionFailed    = "UsurptionFailed"
-	WebsocketMessage_PendingCardShare   = "PendingCardShare"
-	WebsocketMessage_CardShareRejected  = "CardShareRejected"
-	WebsocketMessage_CardShare          = "CardShare"
-	WebsocketMessage_RoomUpdate         = "RoomUpdate"
+	WebsocketMessage_Close                   = "Close"
+	WebsocketMessage_Error                   = "Error"
+	WebsocketMessage_LobbyInfo               = "LobbyInfo"
+	WebsocketMessage_GameState               = "GameState"
+	WebsocketMessage_RoundStart              = "RoundStart"
+	WebsocketMessage_RoundEnd                = "RoundEnd"
+	WebsocketMessage_GameOver                = "GameOver"
+	WebsocketMessage_NewLeader               = "NewLeader"
+	WebsocketMessage_PendingAbdication       = "PendingAbdication"
+	WebsocketMessage_AbdicationRejected      = "AbdicationRejected"
+	WebsocketMessage_PendingUsurption        = "PendingUsurption"
+	WebsocketMessage_UsurptionFailed         = "UsurptionFailed"
+	WebsocketMessage_PendingCardShare        = "PendingCardShare"
+	WebsocketMessage_CardShareRejected       = "CardShareRejected"
+	WebsocketMessage_CardShare               = "CardShare"
+	WebsocketMessage_HostageExchangeComplete = "HostageExchangeComplete"
 )
 
 type WebsocketMessageListItem struct {
@@ -119,6 +119,11 @@ type CardShare struct {
 	FromPlayer string `json:"fromPlayer"`
 	Team       string `json:"team"`
 	Role       string `json:"role"`
+}
+
+type HostageExchangeResult struct {
+	// map[room] -> list of players now in that room
+	SentPlayers map[int][]string `json:"sentPlayers"`
 }
 
 // If some message from a client causes any error, one of these is sent back to the client
