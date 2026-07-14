@@ -7,8 +7,10 @@ const (
 )
 
 type Player struct {
-	Id   string `json:"id"`
-	Name string `json:"name"`
-	Team string `json:"team"`
-	Role string `json:"role"`
+	Id           string `json:"id"`
+	Name         string `json:"name"`
+	Team         string `json:"team"`
+	Role         string `json:"role"`
+	Room         int    `json:"room"`
+	IsRoomLeader bool   `json:"isRoomLeader"`
 }

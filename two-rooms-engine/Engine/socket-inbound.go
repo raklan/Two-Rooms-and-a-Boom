@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"tworoomsapi/Logging"
 	"tworoomsengine/Models"
 
 	"github.com/gorilla/websocket"
@@ -319,7 +318,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 	log.Printf("%s message received from PlayerId {%s} of type '%s' - trying to handle...", funcLogPrefix, playerId, msg.JsonType)
 
 	switch msg.JsonType {
-	case "startGame":
+	case Models.WebsocketMessage_ClientStartGame:
 		log.Printf("%s Received request to start game", funcLogPrefix)
 		config := Models.GameConfig{}
 		if err := json.Unmarshal(msg.Data, &config); err != nil {
@@ -341,7 +340,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			break
 		}
 
-		sendMessageToAllPlayers(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_GameState, Data: game})
+		sendMessageToAllPlayersInLobby(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_GameState, Data: game})
 	case "endGame":
 		err := EndGame(roomCode, playerId)
 		if err != nil {
@@ -350,13 +349,14 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			return
 		}
 		cleanUpRoom(room, roomCode)
-	case "startRound":
-		err := StartNextRound(roomCode)
+	case Models.WebsocketMessage_ClientStartRound:
+		err := startNextRound(roomCode)
 		if err != nil {
 			LogError(funcLogPrefix, err)
 			log.Printf("%s ERROR: Couldn't start round, aborting", funcLogPrefix)
 			return
 		}
+
 	case "leaveLobby":
 		updatedLobby, err := endPlayerConnection(roomCode, playerId, room)
 
@@ -372,7 +372,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			break
 		}
 
-		sendMessageToAllPlayers(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_LobbyInfo, Data: Models.LobbyInfo{PlayerID: "", LobbyInfo: updatedLobby}})
+		sendMessageToAllPlayersInLobby(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_LobbyInfo, Data: Models.LobbyInfo{PlayerID: "", LobbyInfo: updatedLobby}})
 	case "kickPlayer":
 		var action struct {
 			PlayerToKick string `json:"playerToKick"`
@@ -428,7 +428,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			break
 		}
 
-		sendMessageToAllPlayers(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_LobbyInfo, Data: Models.LobbyInfo{PlayerID: "", LobbyInfo: updatedLobby}})
+		sendMessageToAllPlayersInLobby(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_LobbyInfo, Data: Models.LobbyInfo{PlayerID: "", LobbyInfo: updatedLobby}})
 	case "disconnect":
 		log.Printf("%s Player %s is requesting a disconnect!", funcLogPrefix, playerId)
 		conn := room[playerId]
@@ -445,6 +445,8 @@ func processMessage(roomCode string, playerId string, message []byte) {
 		delete(room, playerId)
 		log.Printf("%s Connection closed and server has stopped tracking websocket connection", funcLogPrefix)
 		return //Return so we don't go back into manageClient
+	case Models.WebsocketMessage_ClientNominateLeader:
+
 	default:
 		log.Printf("%s Unknown type sent, ignoring the following message: %s", funcLogPrefix, msg)
 	}
@@ -456,8 +458,6 @@ func processMessage(roomCode string, playerId string, message []byte) {
 // Defer this function whenever you try to read from a socket. If ReadMessage panics, this will kick in. Note: This must be set up (deferred) **BEFORE** calling ReadMessage
 func socketRecovery(roomCode string, room map[string]*websocket.Conn, playerId string) {
 	funcLogPrefix := "==socketRecovery=="
-	defer Logging.EnsureLogPrefixIsReset()
-	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
 
 	if r := recover(); r != nil {
 		log.Printf("%s Something went wrong trying to manage the connection of Player, likely due to an unexpected closing of the Websocket connection for PlayerId {%s}\n\t Error is: %s", funcLogPrefix, playerId, r)

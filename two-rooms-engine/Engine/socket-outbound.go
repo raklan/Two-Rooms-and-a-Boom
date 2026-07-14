@@ -4,12 +4,33 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
+	"sync"
 	"time"
 	"tworoomsapi/Logging"
 	"tworoomsengine/Models"
 
 	"github.com/gorilla/websocket"
 )
+
+type PendingAbdication struct {
+	From string
+	To   string
+}
+
+// map[roomCode][room#] -> playerId
+var pendingAbdications = make(map[string]map[int]PendingAbdication)
+var pendingAbdicationsMutex = sync.Mutex{}
+
+type PendingUsurption struct {
+	VotesYes           int
+	VotesNo            int
+	ProposedLeaderName string
+}
+
+// map[roomCode][room#] -> PendingUsurption
+var pendingUsurptions = make(map[string]map[int]PendingUsurption)
+var pendingUsurptionsMutex = sync.Mutex{}
 
 // Given an id to a Game defition, constructs and returns an initial GameState for it. This is essentially
 // how to start the game
@@ -132,11 +153,11 @@ func MarkLobbyAsEnded(roomCode string) error {
 	return err
 }
 
-// #region StartNextRound
-func StartNextRound(roomCode string) error {
+// #region Round Starting/Ending
+func startNextRound(roomCode string) error {
 	funcLogPrefix := "==StartNextRound=="
-	defer Logging.EnsureLogPrefixIsReset()
-	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
+
+	log.Printf("%s Starting next round for Room [%s]\n", funcLogPrefix, roomCode)
 
 	lobby, err := GetLobbyFromFs(roomCode)
 	if err != nil {
@@ -150,6 +171,7 @@ func StartNextRound(roomCode string) error {
 		return err
 	}
 
+	log.Printf("%s determining round length for round %d\n", funcLogPrefix, gameState.CurrentRound)
 	roundDurationSeconds := 0
 
 	switch gameState.CurrentRound {
@@ -164,13 +186,19 @@ func StartNextRound(roomCode string) error {
 	if roundDurationSeconds == 0 {
 		return fmt.Errorf("could not determine round length")
 	}
+	log.Printf("%s round length will be %d seconds\n", funcLogPrefix, roundDurationSeconds)
+
+	//TODO: DEBUG STATEMENT
+	log.Printf("%s debug -- overriding round length to 10 seconds\n", funcLogPrefix)
+	roundDurationSeconds = 10
 
 	time.AfterFunc(time.Duration(roundDurationSeconds)*time.Second, func() {
 		endCurrentRound(lobby.GameStateId, roomCode)
 	})
+	log.Printf("%s timer set to end round after %d seconds\n", funcLogPrefix, roundDurationSeconds)
 
 	gamesClientsMutex.Lock()
-	sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+	sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
 		Type: Models.WebsocketMessage_RoundStart,
 		Data: Models.RoundStart{},
 	})
@@ -179,12 +207,9 @@ func StartNextRound(roomCode string) error {
 	return nil
 }
 
-// #endregion
-
 func endCurrentRound(gameStateId string, roomCode string) {
 	funcLogPrefix := "==endCurrentRound=="
-	defer Logging.EnsureLogPrefixIsReset()
-	Logging.SetLogPrefix(ModuleLogPrefix, funcLogPrefix)
+	log.Printf("%s ending Round for Room [%s]\n", funcLogPrefix, roomCode)
 
 	gameState, err := GetGameStateFromFs(gameStateId)
 	if err != nil {
@@ -194,13 +219,20 @@ func endCurrentRound(gameStateId string, roomCode string) {
 
 	gameState.CurrentRound++
 	gamesClientsMutex.Lock()
-	if gameState.CurrentRound > gameState.GameConfig.NumRounds {
-		sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+	if gameState.CurrentRound <= gameState.GameConfig.NumRounds {
+		log.Printf("%s dismissing leaders...", funcLogPrefix)
+		for i := range gameState.Players {
+			gameState.Players[i].IsRoomLeader = false
+		}
+
+		log.Printf("%s Current round is now %d/%d\n", funcLogPrefix, gameState.CurrentRound, gameState.GameConfig.NumRounds)
+		sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
 			Type: Models.WebsocketMessage_RoundEnd,
 			Data: Models.RoundEnd{},
 		})
 	} else {
-		sendMessageToAllPlayers(gamesClients[roomCode], Models.WebsocketMessage{
+		log.Printf("%s round (%d) has surpassed max rounds (%d)\n", funcLogPrefix, gameState.CurrentRound, gameState.GameConfig.NumRounds)
+		sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
 			Type: Models.WebsocketMessage_GameOver,
 			Data: Models.GameOver{},
 		})
@@ -212,6 +244,312 @@ func endCurrentRound(gameStateId string, roomCode string) {
 		LogError(funcLogPrefix, err)
 	}
 
+}
+
+// #region NominateLeader
+func nominateLeader(roomCode string, nominatedPlayerId string) error {
+	funcLogPrefix := "==nominateLeader=="
+
+	log.Printf("%s Player Id [%s] has been nominated as a leader. Finding player in lobby...\n", funcLogPrefix, nominatedPlayerId)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	nominatedPlayerIndex := slices.IndexFunc(gameState.Players, func(p Models.Player) bool { return p.Id == nominatedPlayerId })
+	if nominatedPlayerIndex == -1 {
+		LogError(funcLogPrefix, fmt.Errorf("could not find player with id %s to make room leader", nominatedPlayerId))
+	}
+	nominatedPlayer := gameState.Players[nominatedPlayerIndex]
+	log.Printf("%s nominated player is Player [%s] in Room %d", funcLogPrefix, nominatedPlayer.Name, nominatedPlayer.Room)
+
+	playersInRoom := gameState.GetPlayersInRoom(nominatedPlayer.Room)
+	if i := slices.IndexFunc(playersInRoom, func(p Models.Player) bool { return p.IsRoomLeader }); i != -1 {
+		err := fmt.Errorf("couldn't set player as leader - leader of room is already Player [%s]", playersInRoom[i].Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	gameState.Players[nominatedPlayerIndex].IsRoomLeader = true
+
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+
+	sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_NewLeader,
+		Data: Models.NewLeader{
+			NewLeaderName: nominatedPlayer.Name,
+		},
+	})
+
+	return nil
+}
+
+// #region Abdication
+func abdicateLeadership(roomCode string, abdicatorId string, abdicateToId string) error {
+	funcLogPrefix := "==abdicateLeadership=="
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	abdicatorIndex, abdicator := gameState.GetPlayerById(abdicateToId)
+	if abdicatorIndex == -1 {
+		err := fmt.Errorf("could not find player with Id == [%s]", abdicatorId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	abdicateToIndex, abdicateTo := gameState.GetPlayerById(abdicateToId)
+	if abdicateToIndex == -1 {
+		err := fmt.Errorf("could not find player with Id == [%s]", abdicateToId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	if !abdicator.IsRoomLeader {
+		err := fmt.Errorf("player '%s' is not the room leader", abdicator.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	if abdicator.Room != abdicateTo.Room {
+		err := fmt.Errorf("cannot abdicate to Player '%s' -- Not in the same room", abdicateTo.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingAbdicationsMutex.Lock()
+	defer pendingAbdicationsMutex.Unlock()
+
+	if _, exists := pendingAbdications[roomCode][abdicator.Room]; exists {
+		err := fmt.Errorf("room already has a pending abdication from Player '%s' to Player '%s'", abdicator.Name, abdicateTo.Name)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingAbdications[roomCode][abdicator.Room] = PendingAbdication{
+		From: abdicator.Id,
+		To:   abdicateTo.Id,
+	}
+
+	gamesClients[roomCode][abdicateToId].WriteJSON(Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_PendingAbdication,
+		Data: Models.PendingAbdication{
+			From: abdicator.Name,
+		},
+	})
+
+	return nil
+}
+
+func acceptAbdication(roomCode string, acceptingId string) error {
+	funcLogPrefix := "==acceptAbdication=="
+
+	log.Printf("%s accepting abdication for Player [%s]", funcLogPrefix, acceptingId)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	acceptorIndex, acceptor := gameState.GetPlayerById(acceptingId)
+	if acceptorIndex == -1 {
+		err = fmt.Errorf("could not find player [%s]", acceptingId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingAbdicationsMutex.Lock()
+	defer pendingAbdicationsMutex.Unlock()
+
+	if pendingAbdication, exists := pendingAbdications[roomCode][acceptor.Room]; exists {
+		if pendingAbdication.To != acceptor.Id {
+			err = fmt.Errorf("player '%s' is not the target of the pending abdication in Room %d", acceptor.Name, acceptor.Room)
+			LogError(funcLogPrefix, err)
+			return err
+		}
+
+		abdicatorIndex, _ := gameState.GetPlayerById(pendingAbdication.From)
+		if abdicatorIndex == -1 {
+			err := fmt.Errorf("could not find abdicator with Id == [%s] in Pending Abdication to Player '%s'", pendingAbdication.From, acceptor.Name)
+			LogError(funcLogPrefix, err)
+			return err
+		}
+
+		gameState.Players[abdicatorIndex].IsRoomLeader = false
+		gameState.Players[acceptorIndex].IsRoomLeader = true
+
+		delete(pendingAbdications[roomCode], acceptor.Room)
+	} else {
+		err = fmt.Errorf("there is no pending abdication in Room %d", acceptor.Room)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+
+	sendMessageToAllPlayersInRoom(
+		gamesClients[roomCode],
+		gameState,
+		acceptor.Room,
+		Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_NewLeader,
+			Data: Models.NewLeader{
+				NewLeaderName: acceptor.Name,
+			},
+		})
+
+	_, err = SaveGameStateToFs(gameState)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	return nil
+}
+
+// #region Usurption
+func usurpLeader(roomCode string, usurperId string, proposedLeaderId string) error {
+	funcLogPrefix := "==usurpLeader=="
+
+	log.Printf("%s Player [%s] is trying to usurp room leader. Proposed new leader is Player [%s]", usurperId, proposedLeaderId)
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	usurperIndex, usurper := gameState.GetPlayerById(usurperId)
+	if usurperIndex == -1 {
+		err = fmt.Errorf("could not find usurper with Id == [%s]", usurperId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	proposedLeaderIndex, proposedLeader := gameState.GetPlayerById(proposedLeaderId)
+	if proposedLeaderIndex == -1 {
+		err = fmt.Errorf("could not find proposed leader with Id == [%s]", proposedLeaderId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	if usurper.Room != proposedLeader.Room {
+		err = fmt.Errorf("new proposed leader is not in the same room as the usurper")
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingUsurptionsMutex.Lock()
+	defer pendingAbdicationsMutex.Unlock()
+
+	if _, exists := pendingUsurptions[roomCode][usurper.Room]; exists {
+		err = fmt.Errorf("there is already a pending usurption in Room %d", usurper.Room)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingUsurptions[roomCode][usurper.Room] = PendingUsurption{
+		VotesYes:           0,
+		VotesNo:            0,
+		ProposedLeaderName: proposedLeader.Name,
+	}
+
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+
+	sendMessageToAllPlayersInRoom(
+		gamesClients[roomCode],
+		gameState,
+		usurper.Room,
+		Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_PendingUsurption,
+			Data: Models.PendingUsurption{
+				UsurperName:   usurper.Name,
+				NewLeaderName: proposedLeader.Name,
+			},
+		})
+
+	return nil
+}
+
+func voteForUsurption(roomCode string, voterId string, vote bool) error {
+	funcLogPrefix := "==voteForUsurption=="
+
+	gameState, err := getGameStateFromRoomCode(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	voterIndex, voter := gameState.GetPlayerById(voterId)
+	if voterIndex == -1 {
+		err = fmt.Errorf("could not find player with Id == [%s]", voterId)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	pendingUsurptionsMutex.Lock()
+	defer pendingAbdicationsMutex.Unlock()
+
+	if currentVotes, exists := pendingUsurptions[roomCode][voter.Room]; exists {
+		if vote {
+			pendingUsurptions[roomCode][voter.Room] = PendingUsurption{
+				VotesYes:           currentVotes.VotesYes + 1,
+				VotesNo:            currentVotes.VotesNo,
+				ProposedLeaderName: currentVotes.ProposedLeaderName,
+			}
+		} else {
+			pendingUsurptions[roomCode][voter.Room] = PendingUsurption{
+				VotesYes:           currentVotes.VotesYes,
+				VotesNo:            currentVotes.VotesNo + 1,
+				ProposedLeaderName: currentVotes.ProposedLeaderName,
+			}
+		}
+
+		newVotes := pendingUsurptions[roomCode][voter.Room]
+		numPlayersInRoom := len(gameState.GetPlayersInRoom(voter.Room))
+		//If everyone has voted, end voting and notify of result
+		if newVotes.VotesNo+newVotes.VotesYes == numPlayersInRoom {
+			gamesClientsMutex.Lock()
+			defer gamesClientsMutex.Unlock()
+			var messageToSend = Models.WebsocketMessage{}
+			if newVotes.VotesYes > numPlayersInRoom/2 {
+				messageToSend = Models.WebsocketMessage{
+					Type: Models.WebsocketMessage_NewLeader,
+					Data: Models.NewLeader{
+						NewLeaderName: newVotes.ProposedLeaderName,
+					},
+				}
+			} else {
+				messageToSend = Models.WebsocketMessage{
+					Type: Models.WebsocketMessage_UsurptionFailed,
+				}
+			}
+
+			sendMessageToAllPlayersInRoom(
+				gamesClients[roomCode],
+				gameState,
+				voter.Room,
+				messageToSend,
+			)
+
+			delete(pendingUsurptions[roomCode], voter.Room)
+		}
+	} else {
+		err = fmt.Errorf("there is no pending Usurption in Room %d", voter.Room)
+		LogError(funcLogPrefix, err)
+		return err
+	}
+
+	return nil
 }
 
 //Come back to this if I ever want spectators
@@ -589,17 +927,35 @@ func assignTeams(gameState *Models.GameState) {
 // 	return nil
 // }
 
-func sendMessageToAllPlayers(room map[string]*websocket.Conn, message Models.WebsocketMessage) {
-	funcLogPrefix := "==sendMessageToAllPlayers=="
+func sendMessageToAllPlayersInLobby(lobby map[string]*websocket.Conn, message Models.WebsocketMessage) {
+	funcLogPrefix := "==sendMessageToAllPlayersInLobby=="
 
 	if message.Type == "" {
 		log.Printf("%s WARNING: Websocket message being sent has no Type set! Frontend will likely not know how to handle the message!", funcLogPrefix)
 	}
 
-	for playerId, conn := range room {
+	for playerId, conn := range lobby {
 		err := conn.WriteJSON(message)
 		if err != nil {
-			log.Printf("%s Error sending message, skipping meesage to PlayerId {%s}", funcLogPrefix, playerId)
+			log.Printf("%s Error sending message, skipping meesage to PlayerId [%s]", funcLogPrefix, playerId)
+			continue
+		}
+	}
+}
+
+func sendMessageToAllPlayersInRoom(lobby map[string]*websocket.Conn, gameState Models.GameState, roomNumber int, message Models.WebsocketMessage) {
+	funcLogPrefix := "==sendMessageToAllPlayersInRoom=="
+
+	if message.Type == "" {
+		log.Printf("%s WARNING: Websocket message being sent has no Type set! Frontend will likely not know how to handle the message!", funcLogPrefix)
+	}
+
+	playersInRoom := gameState.GetPlayersInRoom(roomNumber)
+
+	for _, player := range playersInRoom {
+		err := lobby[player.Id].WriteJSON(message)
+		if err != nil {
+			log.Printf("%s error sending message, skipping message to Player [%s]", funcLogPrefix, player.Id)
 			continue
 		}
 	}
@@ -660,6 +1016,24 @@ func endPlayerConnection(roomCode string, playerId string, room map[string]*webs
 	}
 
 	return updatedLobby, nil
+}
+
+func getGameStateFromRoomCode(roomCode string) (Models.GameState, error) {
+	funcLogPrefix := "==getGameStateFromRoomCode=="
+
+	lobby, err := GetLobbyFromFs(roomCode)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return Models.GameState{}, err
+	}
+
+	gameState, err := GetGameStateFromFs(lobby.GameStateId)
+	if err != nil {
+		LogError(funcLogPrefix, err)
+		return Models.GameState{}, err
+	}
+
+	return gameState, nil
 }
 
 //#endregion

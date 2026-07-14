@@ -2,7 +2,7 @@
 {{end}}
 
 {{define "body"}}
-<waiting-room></waiting-room>
+<waiting-room style="display: flex; align-items: stretch;"></waiting-room>
 {{end}}
 
 {{define "scripts"}}
@@ -36,7 +36,7 @@
             console.log('leaving page, closing websocket connection');
             sendWsMessage(ws, 'disconnect', {});
             ws.close();
-        })
+        })        
     }
 
     dialWebsocket();

@@ -6,6 +6,9 @@ const html = /*html*/`
             
         </div>
     </div>
+    <div>
+        <button id="start-game-button" class="lobby-button">Start Game</button>
+    </div>
 </div>
 `
 
@@ -14,6 +17,47 @@ const css = /*css*/`
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     justify-items: center;
+}
+
+#waiting-room-container{
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.lobby-button {
+    width: 100%;
+    padding: 0.9rem 1rem;
+    margin-top: 0.5rem;
+
+    background: linear-gradient(
+        145deg,
+        #2a2a36,
+        #1f1f28
+    );
+
+    border: var(--border-thin);
+    border-radius: var(--radius);
+
+    color: var(--color-gold);
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+
+    cursor: pointer;
+    transition: all 150ms ease;
+}
+
+.lobby-button:hover {
+    background: linear-gradient(
+        135deg,
+        #343443,
+        #252532
+    );
+    border-color: var(--color-gold-bright);
+    color: var(--color-gold-bright);
+    box-shadow: 0 0 10px rgba(198, 168, 91, 0.3);
 }
 `
 
@@ -29,11 +73,17 @@ export class WaitingRoom extends ComponentBase {
     connectedCallback(){
         ws.addEventListener('message', this.handleWsMessage)
         ws.addEventListener('error', this.handleWsError)
+
+        this.shadowRoot.getElementById("start-game-button", this.startGame)
     }
 
     disconnectedCallback(){
         ws.removeEventListener('message', this.handleWsMessage);
         ws.removeEventListener('error', this.handleWsError);
+    }
+
+    startGame = () => {
+        sendWsMessage(ws, 'startGame', {})
     }
 
     handleWsError = (wsMsg) => {
@@ -56,7 +106,7 @@ export class WaitingRoom extends ComponentBase {
 
     handleLobbyInfo(data){
         if(!(this.playerId?.length > 0)){
-            this.setupNewPlayer(data.playerId, data.lobbyInfo.host.id)
+            this.setupNewPlayer(data.playerID, data.lobbyInfo.host.id, data.lobbyInfo.roomCode)
         }
 
         this.renderPlayerList(data.lobbyInfo.players);
@@ -79,9 +129,15 @@ export class WaitingRoom extends ComponentBase {
         }
     }
 
-    setupNewPlayer(playerId, hostId){
+    setupNewPlayer(playerId, hostId, roomCode){
         this.playerId = playerId;
         this.isHost = playerId === hostId;
+
+        window.localStorage.setItem('tworooms-connectionInfo', JSON.stringify({
+            type: 'rejoin',
+            playerId: playerId,
+            roomCode: roomCode
+        }))
     }
 }
 
