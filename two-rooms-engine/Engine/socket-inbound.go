@@ -362,13 +362,7 @@ func processMessage(roomCode string, playerId string, message []byte) {
 
 		if err != nil {
 			LogError(funcLogPrefix, err)
-			socketError := Models.WebsocketMessage{
-				Type: Models.WebsocketMessage_Error,
-				Data: Models.SocketError{
-					Message: err.Error(),
-				},
-			}
-			room[playerId].WriteJSON(socketError)
+			sendError(room[playerId], err)
 			break
 		}
 
@@ -446,7 +440,109 @@ func processMessage(roomCode string, playerId string, message []byte) {
 		log.Printf("%s Connection closed and server has stopped tracking websocket connection", funcLogPrefix)
 		return //Return so we don't go back into manageClient
 	case Models.WebsocketMessage_ClientNominateLeader:
+		nomination := Models.NominateLeader{}
+		err := json.Unmarshal(msg.Data, &nomination)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
 
+		err = nominateLeader(roomCode, nomination.NominatedPlayerId)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientAbdicate:
+		abdication := Models.NominateLeader{}
+		err := json.Unmarshal(msg.Data, &abdication)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = abdicateLeadership(roomCode, playerId, abdication.NominatedPlayerId)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientRespondAbdication:
+		response := Models.ClientResponse{}
+		err := json.Unmarshal(msg.Data, &response)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = respondAbdication(roomCode, playerId, response.Accept)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientUsurp:
+		usurption := Models.NominateLeader{}
+		err := json.Unmarshal(msg.Data, &usurption)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = usurpLeader(roomCode, playerId, usurption.NominatedPlayerId)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientUsurpVote:
+		vote := Models.UsurpVote{}
+		err := json.Unmarshal(msg.Data, &vote)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = voteForUsurption(roomCode, playerId, vote.Vote)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientHostageExchange:
+		hostageExchange := Models.HostageExchange{}
+		err := json.Unmarshal(msg.Data, &hostageExchange)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = submitHostages(roomCode, playerId, hostageExchange.Players)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientCardShare:
+		cardShareRequest := Models.CardShareRequest{}
+		err := json.Unmarshal(msg.Data, &cardShareRequest)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = requestCardShare(roomCode, playerId, cardShareRequest.ShareWith, cardShareRequest.ShareFullCard)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+	case Models.WebsocketMessage_ClientRespondCardShare:
+		response := Models.ClientResponse{}
+		err := json.Unmarshal(msg.Data, &response)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
+
+		err = respondCardShare(roomCode, playerId, response.Accept)
+		if err != nil {
+			LogError(funcLogPrefix, err)
+			sendError(room[playerId], err)
+		}
 	default:
 		log.Printf("%s Unknown type sent, ignoring the following message: %s", funcLogPrefix, msg)
 	}

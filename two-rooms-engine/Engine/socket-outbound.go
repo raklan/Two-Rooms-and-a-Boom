@@ -48,14 +48,16 @@ func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	}
 
 	gameState.CurrentRound = 1
-	gameState.GameConfig.NumRounds = 3 //TODO: Allow non-hardcoded values
+	gameState.GameConfig.NumRounds = 3
+	gameState.GameConfig.NumBlueTeam = 5 //TODO: don't hardcode
+	gameState.GameConfig.NumRedTeam = 5
 
 	assignTeams(&gameState)
 	// if err := AssignRoles(&gameState, gameConfig.ActiveRoles, gameConfig.RequiredRoles); err != nil {
 	// 	LogError(funcLogPrefix, err)
 	// 	return gameState, err
 	// }
-	//TODO: Assign starting room
+	assignStartingRooms(&gameState)
 
 	gameState, err = SaveGameStateToFs(gameState)
 	if err != nil {
@@ -672,6 +674,8 @@ func respondCardShare(roomCode string, respondingId string, accept bool) error {
 	return nil
 }
 
+// #region Hostage Exchange
+
 func submitHostages(roomCode string, submittingPlayerId string, hostageIds []string) error {
 	funcLogPrefix := "==submitHostages=="
 
@@ -801,239 +805,6 @@ func submitHostages(roomCode string, submittingPlayerId string, hostageIds []str
 
 // 	return lobby, err
 // }
-// #region SubmitAction
-// func SubmitAction(gameId string, action Actions.SubmittedAction) ([]Models.WebsocketMessageListItem, error) {
-// 	funcLogPrefix := "==SubmitAction=="
-// 	defer Logging.EnsureLogPrefixIsReset()
-// 	Logging.SetLogPrefix(ModuleLogPrefix, PackageLogPrefix)
-
-// 	gameState, err := GetGameStateFromFs(gameId)
-// 	if err != nil {
-// 		LogError(funcLogPrefix, err)
-// 		return []Models.WebsocketMessageListItem{}, err
-// 	}
-
-// 	messages := []Models.WebsocketMessageListItem{}
-
-// 	switch action.Type {
-// 	case Actions.Action_Attack:
-// 		turn := Actions.Attack{}
-// 		err := json.Unmarshal(action.Turn, &turn)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		var result any = nil
-// 		if turn.IsAttacking() {
-// 			result, err = turn.Execute(&gameState, action.PlayerId)
-// 			messages = append(messages, Models.WebsocketMessageListItem{
-// 				Message: Models.WebsocketMessage{
-// 					Type: Models.WebsocketMessage_GameEvent,
-// 					Data: result,
-// 				},
-// 				ShouldBroadcast: true,
-// 			})
-// 			messages = append(messages, Models.WebsocketMessageListItem{
-// 				Message: Models.WebsocketMessage{
-// 					Type: Models.WebsocketMessage_TurnEnd,
-// 					Data: Models.TurnEnd{
-// 						PlayerCurrentState: *gameState.GetCurrentPlayer(),
-// 					},
-// 				},
-// 				ShouldBroadcast: false,
-// 			})
-// 		} else {
-// 			// Cards are weird to deal with. You should only draw a card if you're in a dangerous sector,
-// 			// so DrawCard will check where you are and set the type to Card_NoCard if so. In that case,
-// 			// everyone should be told the player has moved into a safe sector, effectively skipping over
-// 			// the Noise phase of their turn
-// 			cardEvent, er := Actions.DrawCard(&gameState, action.PlayerId)
-// 			err = er
-// 			if cardEvent.Type == Models.Card_NoCard {
-
-// 				actingPlayer := gameState.GetCurrentPlayer()
-
-// 				if gameState.GameMap.Spaces[actingPlayer.GetSpaceMapKey()].Type != Models.Space_Pod {
-// 					messages = append(messages, Models.WebsocketMessageListItem{
-// 						Message: Models.WebsocketMessage{
-// 							Type: Models.WebsocketMessage_GameEvent,
-// 							Data: Models.GameEvent{
-// 								Row:         -99,
-// 								Col:         "!",
-// 								Description: fmt.Sprintf("Player '%s' is in a safe sector", actingPlayer.Name),
-// 							},
-// 						},
-// 						ShouldBroadcast: true,
-// 					})
-// 					go Recap.AddDataToRecap(gameId, action.PlayerId, gameState.Turn, "In a Safe Sector")
-// 				}
-// 				messages = append(messages, Models.WebsocketMessageListItem{
-// 					Message: Models.WebsocketMessage{
-// 						Type: Models.WebsocketMessage_TurnEnd,
-// 						Data: Models.TurnEnd{
-// 							PlayerCurrentState: *gameState.GetCurrentPlayer(),
-// 						},
-// 					},
-// 					ShouldBroadcast: false,
-// 				})
-// 			} else {
-// 				messages = append(messages, Models.WebsocketMessageListItem{
-// 					Message: Models.WebsocketMessage{
-// 						Type: Models.WebsocketMessage_Card,
-// 						Data: cardEvent,
-// 					},
-// 					ShouldBroadcast: false,
-// 				})
-// 			}
-// 		}
-
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-// 	case Actions.Action_Movement:
-// 		turn := Actions.Movement{}
-// 		err := json.Unmarshal(action.Turn, &turn)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		result, err := turn.Execute(&gameState, action.PlayerId)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_MovementResponse,
-// 				Data: result,
-// 			},
-// 			ShouldBroadcast: false,
-// 		})
-// 	case Actions.Action_Noise:
-// 		turn := Actions.Noise{}
-// 		err := json.Unmarshal(action.Turn, &turn)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		result, err := turn.Execute(&gameState, action.PlayerId)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			ShouldBroadcast: true,
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_GameEvent,
-// 				Data: result,
-// 			},
-// 		})
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_TurnEnd,
-// 				Data: Models.TurnEnd{
-// 					PlayerCurrentState: *gameState.GetCurrentPlayer(),
-// 				},
-// 			},
-// 			ShouldBroadcast: false,
-// 		})
-
-// 	case Actions.Action_EndTurn:
-// 		turn := Actions.EndTurn{}
-// 		err := json.Unmarshal(action.Turn, &turn)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		event, err := turn.Execute(&gameState, action.PlayerId)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		if event != nil {
-// 			messages = append(messages, Models.WebsocketMessageListItem{
-// 				Message: Models.WebsocketMessage{
-// 					Type: Models.WebsocketMessage_GameEvent,
-// 					Data: event,
-// 				},
-// 				ShouldBroadcast: true,
-// 			})
-// 		}
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_GameState,
-// 				Data: gameState,
-// 			},
-// 			ShouldBroadcast: true,
-// 		})
-
-// 	case Actions.Action_PlayCard:
-// 		turn := Actions.PlayCard{}
-// 		if err := json.Unmarshal(action.Turn, &turn); err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		event, err := turn.Execute(&gameState, action.PlayerId)
-// 		if err != nil {
-// 			LogError(funcLogPrefix, err)
-// 			return messages, err
-// 		}
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_GameEvent,
-// 				Data: event,
-// 			},
-// 			ShouldBroadcast: true,
-// 		})
-
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_GameState,
-// 				Data: gameState,
-// 			},
-// 			ShouldBroadcast: true,
-// 		})
-// 	}
-
-// 	//Automatically end the game when there are no humans left
-// 	numHumansLeft := 0
-// 	for _, player := range gameState.Players {
-// 		if player.Team == Models.PlayerTeam_Human {
-// 			numHumansLeft++
-// 		}
-// 	}
-
-// 	if numHumansLeft == 0 {
-// 		messages = append(messages, Models.WebsocketMessageListItem{
-// 			Message: Models.WebsocketMessage{
-// 				Type: Models.WebsocketMessage_GameOver,
-// 				Data: Models.GameOver{},
-// 			},
-// 			ShouldBroadcast: true,
-// 		})
-// 	}
-
-// 	//Re-save gamestate
-// 	_, err = SaveGameStateToFs(gameState)
-// 	if err != nil {
-// 		LogError(funcLogPrefix, err)
-// 		return messages, err
-// 	}
-
-// 	return messages, nil
-// }
 
 // #region Helper Functions
 
@@ -1062,6 +833,22 @@ func assignTeams(gameState *Models.GameState) {
 			}
 		}
 	}
+}
+
+func assignStartingRooms(gameState *Models.GameState) {
+	log.Println("Assigning starting rooms")
+
+	slices.SortFunc(gameState.Players, func(p1 Models.Player, p2 Models.Player) int { return rand.Intn(100) - rand.Intn(100) })
+
+	for i := range gameState.Players {
+		if i <= len(gameState.Players)/2 {
+			gameState.Players[i].Room = 1
+		} else {
+			gameState.Players[i].Room = 2
+		}
+	}
+
+	log.Println("Starting rooms assigned. Note - player list ordering has been changed.")
 }
 
 // func AssignRoles(gameState *Models.GameState, activeRoles map[string]int, requiredRoles map[string]int) error {
@@ -1236,6 +1023,15 @@ func endPlayerConnection(roomCode string, playerId string, room map[string]*webs
 	}
 
 	return updatedLobby, nil
+}
+
+func sendError(conn *websocket.Conn, err error) {
+	conn.WriteJSON(Models.WebsocketMessage{
+		Type: Models.WebsocketMessage_Error,
+		Data: Models.SocketError{
+			Message: err.Error(),
+		},
+	})
 }
 
 func getGameStateFromRoomCode(roomCode string) (Models.GameState, error) {

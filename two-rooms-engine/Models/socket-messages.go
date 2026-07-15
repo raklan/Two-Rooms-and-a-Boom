@@ -2,17 +2,16 @@ package Models
 
 // The different types of messages the server might send to a client connected via websocket.
 const (
-	WebsocketMessage_ClientStartGame        = "StartGame"
-	WebsocketMessage_ClientStartRound       = "StartRound"
-	WebsocketMessage_ClientNominateLeader   = "NominateLeader"
-	WebsocketMessage_ClientAbdicate         = "Abdicate"
-	WebsocketMessage_ClientAcceptAbdication = "AcceptAbdication"
-	WebsocketMessage_ClientRejectAbdication = "RejectAbdication"
-	WebsocketMessage_ClientUsurp            = "Usurp"
-	WebsocketMessage_ClientUsurpVote        = "UsurpVote"
-	WebsocketMessage_ClientHostageExchange  = "HostageExchange"
-	WebsocketMessage_ClientCardShare        = "CardShare"
-	WebsocketMessage_ClientAcceptCardShare  = "AcceptCardShare"
+	WebsocketMessage_ClientStartGame         = "StartGame"
+	WebsocketMessage_ClientStartRound        = "StartRound"
+	WebsocketMessage_ClientNominateLeader    = "NominateLeader"
+	WebsocketMessage_ClientAbdicate          = "Abdicate"
+	WebsocketMessage_ClientRespondAbdication = "RespondAbdication"
+	WebsocketMessage_ClientUsurp             = "Usurp"
+	WebsocketMessage_ClientUsurpVote         = "UsurpVote"
+	WebsocketMessage_ClientHostageExchange   = "HostageExchange"
+	WebsocketMessage_ClientCardShare         = "CardShare"
+	WebsocketMessage_ClientRespondCardShare  = "RespondCardShare"
 
 	WebsocketMessage_Close                   = "Close"
 	WebsocketMessage_Error                   = "Error"
@@ -52,9 +51,9 @@ type NominateLeader struct {
 	NominatedPlayerId string `json:"nominatedPlayerId"`
 }
 
-type AcceptAbdication struct {
-	Accept        bool   `json:"accept"`
-	TakingOverFor string `json:"takingOverFor"`
+// A response for any time a client requests something from another client
+type ClientResponse struct {
+	Accept bool `json:"accept"`
 }
 
 type UsurpVote struct {
