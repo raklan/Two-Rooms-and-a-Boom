@@ -180,11 +180,20 @@ func startNextRound(roomCode string) error {
 	log.Printf("%s timer set to end round after %d seconds\n", funcLogPrefix, roundDurationSeconds)
 
 	gamesClientsMutex.Lock()
-	sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
-		Type: Models.WebsocketMessage_RoundStart,
-		Data: Models.RoundStart{},
-	})
-	gamesClientsMutex.Unlock()
+	defer gamesClientsMutex.Unlock()
+
+	for _, player := range gameState.Players {
+		message := Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_RoundStart,
+			Data: Models.RoundStart{
+				RoundNumber: gameState.CurrentRound,
+				RoundLength: roundDurationSeconds,
+				Room:        player.Room,
+			},
+		}
+
+		gamesClients[roomCode][player.Id].WriteJSON(message)
+	}
 
 	return nil
 }

@@ -2,7 +2,8 @@
 {{end}}
 
 {{define "body"}}
-<waiting-room style="display: flex; align-items: stretch;"></waiting-room>
+<waiting-room id="waiting-room" style="display: flex; align-items: stretch;"></waiting-room>
+<gameplay-view id="gameplay-view" style="display: none; align-items: stretch;"></gameplay-view>
 {{end}}
 
 {{define "scripts"}}
@@ -40,6 +41,11 @@
     }
 
     dialWebsocket();
+
+    window.addEventListener('gameStateReceived', () => {
+        document.getElementById("waiting-room").style.display = 'none';
+        document.getElementById("gameplay-view").style.display = 'flex';
+    })
 
 </script>
 {{end}}

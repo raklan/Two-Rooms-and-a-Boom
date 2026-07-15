@@ -90,6 +90,8 @@ type RoundStart struct {
 	RoundNumber int `json:"roundNumber"`
 	//The length of time, in seconds, for which the round will run
 	RoundLength int `json:"roundLength"`
+	//The room which the recipient of the message is currently in
+	Room int `json:"room"`
 }
 
 // A message to notify all players that a round has just ended

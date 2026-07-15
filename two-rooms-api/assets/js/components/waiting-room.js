@@ -71,8 +71,8 @@ export class WaitingRoom extends ComponentBase {
     }
 
     connectedCallback(){
-        ws.addEventListener('message', this.handleWsMessage)
-        ws.addEventListener('error', this.handleWsError)
+        ws.addEventListener('message', this.handleWsMessage);
+        ws.addEventListener('error', this.handleWsError);
 
         this.shadowRoot.getElementById("start-game-button", this.startGame)
     }
@@ -98,6 +98,9 @@ export class WaitingRoom extends ComponentBase {
             case 'LobbyInfo':
                 this.handleLobbyInfo(message.data);
                 break;
+            case 'GameState':
+                this.handleGameState(message.data);
+                break;
             default:
                 console.error("Could not handle webSocket message of type", message.type)
                 break;
@@ -110,6 +113,10 @@ export class WaitingRoom extends ComponentBase {
         }
 
         this.renderPlayerList(data.lobbyInfo.players);
+    }
+
+    handleGameState(data){
+        window.dispatchEvent(new Event('gameStateReceived'))
     }
 
     renderPlayerList(players){
