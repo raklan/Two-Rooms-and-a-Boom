@@ -1,20 +1,38 @@
 const html = /*html*/`
 <div id="view-container">
     <div id="timer-container">
-        <p id="text"></p>
+        <timer-box id="round-timer"></timer-box>
+        <button id="start-round">Start Next Round</button>
     </div>
     <div id="controls">
-        <button id="start-round">Start Next Round</button>
         <button id="show-card">See my Card</button>
     </div> 
+    <div id="gameover-alert">
+        <div style="border: 1px solid var(--color-gold); text-align: center; background-color: black; padding: 15px">
+            <div id="victory">Your team won!</div>
+            <a href="/" style="color: var(--color-gold)">Next</a>
+        </div>
+    </div>
     <card-view id="card-view" team="blue" role="player" show="false"></card-view>   
 </div>
 `;
 
-const css = /*css*/``;
+const css = /*css*/`
+#gameover-alert{
+    color: var(--color-gold);
+    background-color: rgba(0,0,0,0.75);
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    visibility: hidden;
+}
+`;
 
 import { ComponentBase } from "./component-base.js";
 import { CardView } from "./card-view.js";
+import { TimerBox } from "./timer-box.js";
 export class GameplayView extends ComponentBase{
     constructor(){
         super(html, css);
@@ -51,6 +69,12 @@ export class GameplayView extends ComponentBase{
             case 'RoundStart':
                 this.handleRoundStart(message.data);
                 break;
+            case 'RoundEnd':
+                this.handleRoundEnd(message.data);                
+                break;
+            case 'GameOver':
+                this.handleGameOver(message.data);
+                break;
             default:
                 console.error("Could not handle webSocket message of type", message.type)
                 break;
@@ -66,7 +90,7 @@ export class GameplayView extends ComponentBase{
     handleLobbyInfo(data){
         if(!(this.playerId?.length > 0)){
             this.playerId = data.playerID;
-            this.isHost = data.playerID === data.lobbyInfo.host.Id;
+            this.isHost = data.playerID === data.lobbyInfo.host.id;
         }
     }
 
@@ -80,10 +104,41 @@ export class GameplayView extends ComponentBase{
         let cardView = this.shadowRoot.getElementById("card-view");
         cardView.setAttribute('team', this.team);
         cardView.setAttribute('role', this.role);
+
+        if(this.isHost){
+            this.shadowRoot.getElementById("start-round").style.visibility = '';
+        }else{
+            this.shadowRoot.getElementById("start-round").style.visibility = 'hidden';
+        }
     }
 
     handleRoundStart(roundData){
         console.log('round starting', roundData)
+
+        this.room = roundData.room;
+
+        const timer = this.shadowRoot.getElementById("round-timer");
+        timer.setAttribute("round", roundData.roundNumber);
+        timer.setAttribute("round-length", roundData.roundLength);
+
+        this.shadowRoot.getElementById("start-round").style.visibility = 'hidden';
+    }
+
+    handleRoundEnd(roundData){
+        console.log('round ending', roundData);
+
+        if(this.isHost){
+            this.shadowRoot.getElementById("start-round").style.visibility = 'visible';
+        }else{
+            this.shadowRoot.getElementById("start-round").style.visibility = 'hidden';
+        }
+    }
+
+    handleGameOver(gameOverData){
+        let gameOverMessage = `Your team ${gameOverData.victory ? 'won' : 'lost'}!`
+
+        this.shadowRoot.getElementById("victory").innerText = gameOverMessage;
+        this.shadowRoot.getElementById('gameover-alert').style.visibility = 'visible';
     }
 
     startNextRound(){

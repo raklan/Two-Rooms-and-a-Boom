@@ -45,7 +45,7 @@
     dialWebsocket();
 
     window.addEventListener('gameStateReceived', () => {
-        document.getElementById("waiting-room").style.display = 'none';
+        document.getElementById("waiting-room").remove();
         document.getElementById("gameplay-view").style.display = 'flex';
     })
 
