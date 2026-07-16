@@ -57,6 +57,9 @@ func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	// 	LogError(funcLogPrefix, err)
 	// 	return gameState, err
 	// }
+	for i := range gameState.Players {
+		gameState.Players[i].Role = "player"
+	}
 	assignStartingRooms(&gameState)
 
 	gameState, err = SaveGameStateToFs(gameState)

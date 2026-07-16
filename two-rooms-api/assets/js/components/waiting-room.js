@@ -74,7 +74,7 @@ export class WaitingRoom extends ComponentBase {
         ws.addEventListener('message', this.handleWsMessage);
         ws.addEventListener('error', this.handleWsError);
 
-        this.shadowRoot.getElementById("start-game-button", this.startGame)
+        this.shadowRoot.getElementById("start-game-button").addEventListener('click', this.startGame);
     }
 
     disconnectedCallback(){
@@ -83,7 +83,7 @@ export class WaitingRoom extends ComponentBase {
     }
 
     startGame = () => {
-        sendWsMessage(ws, 'startGame', {})
+        sendWsMessage(ws, 'StartGame', {})
     }
 
     handleWsError = (wsMsg) => {

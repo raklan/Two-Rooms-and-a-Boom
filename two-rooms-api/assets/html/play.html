@@ -9,6 +9,8 @@
 {{define "scripts"}}
 <script src="/assets/js/utils.js"></script>
 <script type="module" src="/assets/js/components/waiting-room.js"></script>
+<script type="module" src="/assets/js/components/gameplay-view.js"></script>
+<script type="module" src="/assets/js/components/card-view.js"></script>
 <script>
     function dialWebsocket(){
         const connectionInfo = JSON.parse(window.localStorage.getItem("tworooms-connectionInfo"));
