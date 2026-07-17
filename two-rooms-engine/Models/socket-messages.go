@@ -27,7 +27,7 @@ const (
 	WebsocketMessage_UsurptionFailed         = "UsurptionFailed"
 	WebsocketMessage_PendingCardShare        = "PendingCardShare"
 	WebsocketMessage_CardShareRejected       = "CardShareRejected"
-	WebsocketMessage_CardShare               = "CardShare"
+	WebsocketMessage_CardShare               = "SharedCard"
 	WebsocketMessage_HostageExchangeComplete = "HostageExchangeComplete"
 )
 
