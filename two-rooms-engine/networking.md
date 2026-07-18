@@ -11,7 +11,7 @@ sequenceDiagram
     Client ->> Server: /Host
     Server ->> Client: LobbyInfo
     Client ->> Server: StartGame
-    Server ->> Client: GameState
+    Server ->> Client: GameInfo
 
     loop Repeated 3 times
         Client ->> Server: StartRound
@@ -31,7 +31,7 @@ sequenceDiagram
     participant Server@{"type": "database"}
     Client ->> Server: /Join
     Server ->> Client: LobbyInfo
-    Server ->> Client: GameState
+    Server ->> Client: GameInfo
 
     loop Repeated 3 times
         Server ->> Client: RoundStart

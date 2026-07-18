@@ -14,7 +14,7 @@ import (
 
 // Given an id to a Game defition, constructs and returns an initial GameState for it. This is essentially
 // how to start the game
-func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.GameState, error) {
+func startGame(roomCode string, gameConfig Models.GameConfig) error {
 	funcLogPrefix := "==GetInitialGameState=="
 	defer Logging.EnsureLogPrefixIsReset()
 	Logging.SetLogPrefix(ModuleLogPrefix, PackageLogPrefix)
@@ -24,14 +24,14 @@ func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	lobby, err := GetLobbyFromFs(roomCode)
 	if err != nil {
 		LogError(funcLogPrefix, err)
-		return gameState, err
+		return err
 	}
 
 	//Check if the lobby is already started.
 	if lobby.Status == Models.LobbyStatus_InProgress {
 		err := fmt.Errorf("tried to start game, but Lobby {%s} has been marked as In Progress and has a GameStateId == {%s}", lobby.RoomCode, lobby.GameStateId)
 		LogError(funcLogPrefix, err)
-		return gameState, err
+		return err
 	}
 
 	gameState.GameConfig = gameConfig
@@ -65,7 +65,7 @@ func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	gameState, err = SaveGameStateToFs(gameState)
 	if err != nil {
 		LogError(funcLogPrefix, err)
-		return gameState, err
+		return err
 	}
 
 	//Mark the lobby as started and fill in GameStateId
@@ -74,13 +74,34 @@ func getInitialGameState(roomCode string, gameConfig Models.GameConfig) (Models.
 	_, err = SaveLobbyToFs(lobby)
 	if err != nil {
 		LogError(funcLogPrefix, err)
-		return gameState, err
+		return err
 	}
 
 	//Create the recap object
 	//go createInitialRecap(gameState)
 
-	return gameState, nil
+	roomPlayerLists := map[int][]Models.PlayerObscured{
+		1: gameState.GetObscuredPlayersInRoom(1),
+		2: gameState.GetObscuredPlayersInRoom(2),
+	}
+
+	gamesClientsMutex.Lock()
+	defer gamesClientsMutex.Unlock()
+
+	for _, player := range gameState.Players {
+		message := Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_GameInfo,
+			Data: Models.GameInfo{
+				Player:       player,
+				CurrentRound: 0,
+				Occupants:    roomPlayerLists[player.Room],
+			},
+		}
+
+		gamesClients[roomCode][player.Id].WriteJSON(message)
+	}
+
+	return nil
 }
 
 func EndGame(roomCode string, playerId string) error {
@@ -144,13 +165,7 @@ func startNextRound(roomCode string) error {
 
 	log.Printf("%s Starting next round for Room [%s]\n", funcLogPrefix, roomCode)
 
-	lobby, err := GetLobbyFromFs(roomCode)
-	if err != nil {
-		LogError(funcLogPrefix, err)
-		return err
-	}
-
-	gameState, err := GetGameStateFromFs(lobby.GameStateId)
+	gameState, err := getGameStateFromRoomCode(roomCode)
 	if err != nil {
 		LogError(funcLogPrefix, err)
 		return err
@@ -174,13 +189,18 @@ func startNextRound(roomCode string) error {
 	log.Printf("%s round length will be %d seconds\n", funcLogPrefix, roundDurationSeconds)
 
 	//TODO: DEBUG STATEMENT
-	log.Printf("%s debug -- overriding round length to 10 seconds\n", funcLogPrefix)
-	roundDurationSeconds = 10
+	log.Printf("%s debug -- overriding round length to 30 seconds\n", funcLogPrefix)
+	roundDurationSeconds = 30
 
 	time.AfterFunc(time.Duration(roundDurationSeconds)*time.Second, func() {
-		endCurrentRound(lobby.GameStateId, roomCode)
+		endCurrentRound(gameState.Id, roomCode)
 	})
 	log.Printf("%s timer set to end round after %d seconds\n", funcLogPrefix, roundDurationSeconds)
+
+	log.Printf("%s dismissing previous leaders...", funcLogPrefix)
+	for i := range gameState.Players {
+		gameState.Players[i].IsRoomLeader = false
+	}
 
 	gamesClientsMutex.Lock()
 	defer gamesClientsMutex.Unlock()
@@ -196,6 +216,11 @@ func startNextRound(roomCode string) error {
 		}
 
 		gamesClients[roomCode][player.Id].WriteJSON(message)
+	}
+
+	_, err = SaveGameStateToFs(gameState)
+	if err != nil {
+		LogError(funcLogPrefix, err)
 	}
 
 	return nil
@@ -214,11 +239,6 @@ func endCurrentRound(gameStateId string, roomCode string) {
 	gameState.CurrentRound++
 	gamesClientsMutex.Lock()
 	if gameState.CurrentRound <= gameState.GameConfig.NumRounds {
-		log.Printf("%s dismissing leaders...", funcLogPrefix)
-		for i := range gameState.Players {
-			gameState.Players[i].IsRoomLeader = false
-		}
-
 		log.Printf("%s Current round is now %d/%d\n", funcLogPrefix, gameState.CurrentRound, gameState.GameConfig.NumRounds)
 		sendMessageToAllPlayersInLobby(gamesClients[roomCode], Models.WebsocketMessage{
 			Type: Models.WebsocketMessage_RoundEnd,

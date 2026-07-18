@@ -39,9 +39,8 @@ export class GameplayView extends ComponentBase{
 
         this.playerId = null;
         this.isHost = false;
-        this.team = null;
-        this.role = null;
-        this.room = null;
+        this.player = null;
+        this.roomPlayers = [];
     }
 
     connectedCallback(){
@@ -63,8 +62,8 @@ export class GameplayView extends ComponentBase{
             case 'LobbyInfo':
                 this.handleLobbyInfo(message.data);
                 break;
-            case 'GameState':
-                this.handleGameState(message.data);
+            case 'GameInfo':
+                this.handleGameInfo(message.data);
                 break;
             case 'RoundStart':
                 this.handleRoundStart(message.data);
@@ -89,21 +88,19 @@ export class GameplayView extends ComponentBase{
     // #region Message Handlers
     handleLobbyInfo(data){
         if(!(this.playerId?.length > 0)){
-            this.playerId = data.playerID;
-            this.isHost = data.playerID === data.lobbyInfo.host.id;
+            this.playerId = data.playerId;
+            this.isHost = data.playerId === data.lobbyInfo.host.id;
         }
     }
 
-    handleGameState(gameState){
-        let thisPlayer = gameState.players.find(p => p.id == this.playerId);
+    handleGameInfo(gameInfo){
+        this.player = gameInfo.player;
 
-        this.room = thisPlayer.room;
-        this.role = thisPlayer.role;
-        this.team = thisPlayer.team;
+        this.roomPlayers = gameInfo.occupants.filter(el => el.id !== this.player.id);
 
         let cardView = this.shadowRoot.getElementById("card-view");
-        cardView.setAttribute('team', this.team);
-        cardView.setAttribute('role', this.role);
+        cardView.setAttribute('team', this.player.team);
+        cardView.setAttribute('role', this.player.role);
 
         if(this.isHost){
             this.shadowRoot.getElementById("start-round").style.visibility = '';
@@ -115,7 +112,7 @@ export class GameplayView extends ComponentBase{
     handleRoundStart(roundData){
         console.log('round starting', roundData)
 
-        this.room = roundData.room;
+        this.player.room = roundData.room;
 
         const timer = this.shadowRoot.getElementById("round-timer");
         timer.setAttribute("round", roundData.roundNumber);
@@ -140,6 +137,8 @@ export class GameplayView extends ComponentBase{
         this.shadowRoot.getElementById("victory").innerText = gameOverMessage;
         this.shadowRoot.getElementById('gameover-alert').style.visibility = 'visible';
     }
+
+    // #region Event Listeners
 
     startNextRound(){
         sendWsMessage(ws, 'StartRound', {})

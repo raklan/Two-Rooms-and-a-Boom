@@ -98,8 +98,8 @@ export class WaitingRoom extends ComponentBase {
             case 'LobbyInfo':
                 this.handleLobbyInfo(message.data);
                 break;
-            case 'GameState':
-                this.handleGameState(message.data);
+            case 'GameInfo':
+                this.handleGameInfo(message.data);
                 break;
             default:
                 console.error("Could not handle webSocket message of type", message.type)
@@ -109,13 +109,13 @@ export class WaitingRoom extends ComponentBase {
 
     handleLobbyInfo(data){
         if(!(this.playerId?.length > 0)){
-            this.setupNewPlayer(data.playerID, data.lobbyInfo.host.id, data.lobbyInfo.roomCode)
+            this.setupNewPlayer(data.playerId, data.lobbyInfo.host.id, data.lobbyInfo.roomCode)
         }
 
         this.renderPlayerList(data.lobbyInfo.players);
     }
 
-    handleGameState(data){
+    handleGameInfo(data){
         window.dispatchEvent(new Event('gameStateReceived'))
     }
 

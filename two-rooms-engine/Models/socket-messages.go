@@ -16,7 +16,7 @@ const (
 	WebsocketMessage_Close                   = "Close"
 	WebsocketMessage_Error                   = "Error"
 	WebsocketMessage_LobbyInfo               = "LobbyInfo"
-	WebsocketMessage_GameState               = "GameState"
+	WebsocketMessage_GameInfo                = "GameInfo"
 	WebsocketMessage_RoundStart              = "RoundStart"
 	WebsocketMessage_RoundEnd                = "RoundEnd"
 	WebsocketMessage_GameOver                = "GameOver"
@@ -31,16 +31,11 @@ const (
 	WebsocketMessage_HostageExchangeComplete = "HostageExchangeComplete"
 )
 
-type WebsocketMessageListItem struct {
-	Message         WebsocketMessage
-	ShouldBroadcast bool
-}
-
 // A message sent from the server to a client. The frontend can check [Type] to determine how to parse the object in [Data]
 type WebsocketMessage struct {
 	//One of the above constants. That constant will tell you which of the below structs is found in the [Data] field
 	Type string `json:"type"`
-	//One of the below structs, a Changelog, or a GameState. Its exact type is recorded in [Type]
+	//One of the below structs. Its exact type is recorded in [Type]
 	Data any `json:"data"`
 }
 
@@ -80,8 +75,14 @@ type CardShareRequest struct {
 // A message containing a Player's assigned ID and the details of the lobby after they've joined it, whether by hosting it or joining a pre-existing lobby.
 // The frontend should store this PlayerID.
 type LobbyInfo struct {
-	PlayerID  string `json:"playerID"`
+	PlayerID  string `json:"playerId"`
 	LobbyInfo Lobby  `json:"lobbyInfo"`
+}
+
+type GameInfo struct {
+	Player       Player           `json:"player"`
+	CurrentRound int              `json:"currentRound"`
+	Occupants    []PlayerObscured `json:"occupants"`
 }
 
 // A message to notify all players that a round has just started

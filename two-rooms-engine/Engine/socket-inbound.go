@@ -209,9 +209,9 @@ func HandleRejoinLobby(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.WriteJSON(msg)
 
-	//If the game has started, send a GameState
+	//If the game has started, send a GameInfo
 	if lobbyInfo.Status == Models.LobbyStatus_InProgress {
-		log.Printf("%s Game has been marked as 'In Progress' - Sending current GameState...", funcLogPrefix)
+		log.Printf("%s Game has been marked as 'In Progress' - Sending current GameInfo...", funcLogPrefix)
 		gameState, err := GetGameStateFromFs(lobbyInfo.GameStateId)
 		if err != nil {
 			LogError(funcLogPrefix, err)
@@ -219,8 +219,19 @@ func HandleRejoinLobby(w http.ResponseWriter, r *http.Request) {
 				Type: Models.WebsocketMessage_Error,
 				Data: Models.SocketError{Message: err.Error()},
 			})
+			conn.Close()
+			return
 		}
-		conn.WriteJSON(Models.WebsocketMessage{Type: Models.WebsocketMessage_GameState, Data: gameState})
+
+		_, thisPlayer := gameState.GetPlayerById(playerId)
+		conn.WriteJSON(Models.WebsocketMessage{
+			Type: Models.WebsocketMessage_GameInfo,
+			Data: Models.GameInfo{
+				Player:       thisPlayer,
+				CurrentRound: gameState.CurrentRound,
+				Occupants:    gameState.GetObscuredPlayersInRoom(thisPlayer.Room),
+			},
+		})
 	}
 
 	log.Printf("%s Player {%s} has been given first message(s). Beginning to track and manage connection", funcLogPrefix, playerId)
@@ -333,14 +344,12 @@ func processMessage(roomCode string, playerId string, message []byte) {
 			break
 		}
 
-		game, err := getInitialGameState(roomCode, config)
+		err := startGame(roomCode, config)
 		if err != nil {
 			LogError(funcLogPrefix, err)
 			log.Printf("%s ERROR: GAME NOT STARTED, ABORTING...", funcLogPrefix)
 			break
 		}
-
-		sendMessageToAllPlayersInLobby(room, Models.WebsocketMessage{Type: Models.WebsocketMessage_GameState, Data: game})
 	case "endGame":
 		err := EndGame(roomCode, playerId)
 		if err != nil {

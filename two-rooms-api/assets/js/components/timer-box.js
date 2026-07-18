@@ -83,6 +83,7 @@ export class TimerBox extends ComponentBase {
     this.shadowRoot.getElementById("round").innerText = `Round ${newRound}`
 
     if (this.round !== newRound) {
+      this.round = newRound;
       this.resetTimer();
       this.startTimer();
     }
@@ -102,6 +103,7 @@ export class TimerBox extends ComponentBase {
   resetTimer = () => {
     const path = this.shadowRoot.getElementById("timer-path-alert");
     //The transition time will slowly fade the color to red over the course of the timer
+    path.style.setProperty("--transition-speed", `0s`)
     path.setAttribute("stroke", "var(--color-gold)")
     path.setAttribute("stroke-dasharray", "283")
     path.style.setProperty("--transition-speed", `${Math.max(this.roundLength - 10, 10)}s`)

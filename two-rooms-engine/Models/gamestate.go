@@ -21,6 +21,23 @@ func (g GameState) GetPlayersInRoom(room int) []Player {
 	return players
 }
 
+func (g GameState) GetObscuredPlayersInRoom(room int) []PlayerObscured {
+	players := []PlayerObscured{}
+
+	for _, player := range g.Players {
+		if player.Room == room {
+			players = append(players, PlayerObscured{
+				Id:           player.Id,
+				Name:         player.Name,
+				Room:         player.Room,
+				IsRoomLeader: player.IsRoomLeader,
+			})
+		}
+	}
+
+	return players
+}
+
 func (g GameState) GetPlayerById(playerId string) (int, Player) {
 	if playerIndex := slices.IndexFunc(g.Players, func(p Player) bool { return p.Id == playerId }); playerIndex == -1 {
 		return -1, Player{}
