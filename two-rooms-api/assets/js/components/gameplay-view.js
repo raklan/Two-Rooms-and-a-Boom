@@ -6,6 +6,7 @@ const html = /*html*/`
     </div>
     <div id="controls">
         <button id="show-card">See my Card</button>
+        <button id="card-share">Card Share</button>
     </div> 
     <div id="gameover-alert">
         <div style="border: 1px solid var(--color-gold); text-align: center; background-color: black; padding: 15px">

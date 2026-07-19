@@ -1,3 +1,4 @@
 logs/*.log
 lobbies/*.json
 gameStates/*.json
+two-rooms-api/assets/html/testbed.html
